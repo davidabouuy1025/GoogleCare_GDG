@@ -1,0 +1,9 @@
+{
+  "name": "GoogleCare",
+  "description": "AI-powered healthcare assistant for symptom analysis, elderly check-ins, and wound care.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
