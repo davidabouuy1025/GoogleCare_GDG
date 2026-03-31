@@ -2,8 +2,10 @@ node_modules/
 build/
 dist/
 coverage/
+.vite/
+datatset/
+venv/
 .DS_Store
 *.log
 .env*
 !.env.example
-.env.example
