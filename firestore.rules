@@ -1,0 +1,102 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: patientID
+    // Fields:
+    //   - patientID: string (required)
+    //   - patientName: string (required)
+    //   - patientAge: int
+    //   - patientAddress: string
+    //   - patientContactNo: string
+    //   - patientEmergencyContact: string
+    //   - patientHistory: string
+    //   - checkInDeadline: string
+    //   - lastCheckIn: string
+    //   - deadlineMissed: bool
+    //
+    // Collection: symptoms
+    // Document ID: auto-generated
+    // Fields:
+    //   - patientID: string (required)
+    //   - Symptom: string (required)
+    //   - riskLevel: string
+    //   - confidenceScore: number
+    //   - date: string
+    //
+    // Collection: moods
+    // Document ID: auto-generated
+    // Fields:
+    //   - patientID: string (required)
+    //   - date: string (required)
+    //   - mood: string (required)
+    //   - remark: string
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "myleejm23@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['patientID', 'patientName']) &&
+             data.patientID is string &&
+             data.patientName is string && data.patientName.size() < 100;
+    }
+
+    function isValidSymptom(data) {
+      return data.keys().hasAll(['patientID', 'Symptom']) &&
+             data.patientID is string &&
+             data.Symptom is string && data.Symptom.size() < 5000;
+    }
+
+    function isValidMood(data) {
+      return data.keys().hasAll(['patientID', 'date', 'mood']) &&
+             data.patientID is string &&
+             data.date is string &&
+             data.mood is string && data.mood.size() < 100;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{patientID} {
+      allow read: if isAuthenticated() && (isOwner(patientID) || isAdmin());
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(patientID) || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(patientID) || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /symptoms/{symptomId} {
+      allow read: if isAuthenticated() && (isOwner(request.resource.data.patientID) || isAdmin());
+      allow create: if isAuthenticated() && isValidSymptom(request.resource.data) && (isOwner(request.resource.data.patientID) || isAdmin());
+      allow update: if isAuthenticated() && isValidSymptom(request.resource.data) && (isOwner(request.resource.data.patientID) || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /moods/{moodId} {
+      allow read: if isAuthenticated() && (isOwner(request.resource.data.patientID) || isAdmin());
+      allow create: if isAuthenticated() && isValidMood(request.resource.data) && (isOwner(request.resource.data.patientID) || isAdmin());
+      allow update: if isAuthenticated() && isValidMood(request.resource.data) && (isOwner(request.resource.data.patientID) || isAdmin());
+      allow delete: if isAdmin();
+    }
+  }
+}
