@@ -24,16 +24,89 @@ import {
   Edit2,
   Save,
   X,
-  Clock
+  Clock,
+  LogIn
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+// Firebase imports
+import { 
+  doc, 
+  getDoc, 
+  setDoc, 
+  updateDoc, 
+  onSnapshot, 
+  collection, 
+  addDoc, 
+  query, 
+  where, 
+  orderBy, 
+  limit,
+  Timestamp,
+  getDocFromServer
+} from 'firebase/firestore';
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { db, auth } from './firebase';
+import { analyzeSymptoms, checkInElderly, analyzeWound } from './services/aiService';
+
 // --- Utility ---
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+// --- Error Handling ---
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
 }
 
 // --- Types ---
@@ -53,44 +126,202 @@ interface Patient {
   riskAlerts: Array<{ date: string; message: string }>;
 }
 
+
+
 // --- Components ---
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [patient, setPatient] = useState<Patient | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [showGuestModal, setShowGuestModal] = useState(false);
 
-  // Fetch patient data on load
+  // Auth listener
   useEffect(() => {
-    fetchPatient('123');
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setIsAuthReady(true);
+      setLoading(false);
+    });
+    return () => unsubscribe();
   }, []);
 
-  const fetchPatient = async (id: string) => {
+  // Connection test
+  useEffect(() => {
+    async function testConnection() {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if(error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration. ");
+        }
+      }
+    }
+    testConnection();
+  }, []);
+
+  // Fetch patient data on auth change
+  useEffect(() => {
+    if (!user) {
+      setPatient(null);
+      return;
+    }
+
+    const patientRef = doc(db, 'users', user.uid);
+    const unsubscribe = onSnapshot(patientRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        setPatient({
+          id: user.uid,
+          name: data.patientName || user.displayName || 'Patient',
+          age: data.patientAge || 0,
+          contact: data.patientContactNo || '',
+          address: data.patientAddress || '',
+          emergencyContact: data.patientEmergencyContact || '',
+          checkInDeadline: data.checkInDeadline || '09:00',
+          lastCheckIn: data.lastCheckIn || null,
+          deadlineMissed: data.deadlineMissed || false,
+          history: data.history || [],
+          riskAlerts: data.riskAlerts || []
+        });
+      } else {
+        // Initialize patient profile if it doesn't exist
+        const initialPatient = {
+          patientID: user.uid,
+          patientName: user.displayName || '',
+          patientAge: 0,
+          patientAddress: '',
+          patientContactNo: '',
+          patientEmergencyContact: '',
+          patientHistory: '',
+          checkInDeadline: '09:00',
+          lastCheckIn: null,
+          deadlineMissed: false,
+          history: [],
+          riskAlerts: []
+        };
+        setDoc(patientRef, initialPatient).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  const login = async () => {
+    const provider = new GoogleAuthProvider();
     try {
-      const res = await fetch(`/api/dashboard/${id}`);
-      const data = await res.json();
-      setPatient(data);
+      await signInWithPopup(auth, provider);
     } catch (err) {
-      console.error("Failed to fetch patient", err);
+      console.error("Login failed", err);
     }
   };
 
+  const loginAnonymously = async () => {
+  const { signInAnonymously } = await import('firebase/auth');
+  try {
+    await signInAnonymously(auth);
+    setShowGuestModal(false);
+  } catch (err) {
+    console.error("Anonymous login failed", err);
+  }
+};
+
   const updateProfile = async (updates: Partial<Patient>) => {
-    if (!patient) return;
+    if (!user) return;
+    const patientRef = doc(db, 'users', user.uid);
+    
+    // Map Patient type back to Firestore schema
+    const firestoreUpdates: any = {};
+    if (updates.name !== undefined) firestoreUpdates.patientName = updates.name;
+    if (updates.age !== undefined) firestoreUpdates.patientAge = updates.age;
+    if (updates.contact !== undefined) firestoreUpdates.patientContactNo = updates.contact;
+    if (updates.address !== undefined) firestoreUpdates.patientAddress = updates.address;
+    if (updates.emergencyContact !== undefined) firestoreUpdates.patientEmergencyContact = updates.emergencyContact;
+    if (updates.checkInDeadline !== undefined) firestoreUpdates.checkInDeadline = updates.checkInDeadline;
+
     try {
-      const res = await fetch('/api/update-profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ patientId: patient.id, updates })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setPatient(data.patient);
-      }
+      await updateDoc(patientRef, firestoreUpdates);
     } catch (err) {
-      console.error("Failed to update profile", err);
+      handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}`);
     }
   };
+
+  if (loading || !isAuthReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-slate-500 font-medium">Initializing Care System...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+        <div className="max-w-md w-full bg-white p-8 rounded-3xl shadow-xl border border-slate-100 text-center space-y-6">
+          <div className="w-20 h-20 bg-blue-600 rounded-2xl flex items-center justify-center text-white mx-auto shadow-lg shadow-blue-100">
+            <Heart size={40} fill="currentColor" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">GoogleCare</h1>
+            <p className="text-slate-500 mt-2">Please sign in to access your health dashboard and monitoring tools.</p>
+          </div>
+          <div className='flex gap-3'>
+            <button 
+              onClick={login}
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all shadow-lg shadow-blue-100 active:scale-95"
+            >
+              <LogIn size={40} />
+              Sign in with Google
+            </button>
+            <button 
+              onClick={() => setShowGuestModal(true)}
+              className="flex-1 border border-slate-200 hover:bg-slate-50 text-slate-600 px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all"
+            >
+              Continue as Guest
+            </button>
+          </div>
+          <p className="text-xs text-slate-400">Secured, <abbr className="underline" title="Health Insurance Portability and Accountability Act">HIPAA-compliant</abbr> patient monitoring</p>
+        </div>
+
+        {showGuestModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-3xl p-8 max-w-sm w-full space-y-6 shadow-2xl">
+              <div className="w-14 h-14 bg-orange-100 rounded-2xl flex items-center justify-center mx-auto">
+                <AlertTriangle size={28} className="text-orange-500" />
+              </div>
+              <div className="text-center space-y-2">
+                <h2 className="text-xl font-bold">Guest Account Warning</h2>
+                <p className="text-slate-500 text-sm">
+                  Your data is tied to this device only. Clearing your browser or switching devices will <span className="font-bold text-red-500">permanently delete</span> your health records.
+                </p>
+              </div>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={loginAnonymously}
+                  className="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-2xl font-bold transition-all active:scale-95"
+                >
+                  I Understand, Continue as Guest
+                </button>
+                <button
+                  onClick={() => setShowGuestModal(false)}
+                  className="w-full border border-slate-200 hover:bg-slate-50 text-slate-600 py-3 rounded-2xl font-bold transition-all"
+                >
+                  Go Back
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-20 md:pb-0 md:pl-64">
@@ -109,15 +340,25 @@ export default function App() {
         <NavItem icon={<User size={20} />} label="Elderly" active={activeTab === 'elderly'} onClick={() => setActiveTab('elderly')} />
         <NavItem icon={<AlertCircle size={20} />} label="Emergency" active={activeTab === 'emergency'} onClick={() => setActiveTab('emergency')} />
         <NavItem icon={<User size={20} />} label="Profile" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
+        
+        <div className="hidden md:block mt-auto pt-6 border-t border-slate-100">
+          <button 
+            onClick={() => auth.signOut()}
+            className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 hover:bg-red-50 hover:text-red-600 transition-all w-full"
+          >
+            <X size={20} />
+            <span className="text-sm font-medium">Sign Out</span>
+          </button>
+        </div>
       </nav>
 
       {/* Main Content */}
       <main className="max-w-4xl mx-auto p-4 md:p-8">
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && <Dashboard key="dashboard" patient={patient} onEmergency={() => setActiveTab('emergency')} />}
-          {activeTab === 'symptoms' && <SymptomAnalyzer key="symptoms" patientId={patient?.id} onAnalysisComplete={() => fetchPatient('123')} />}
+          {activeTab === 'symptoms' && <SymptomAnalyzer key="symptoms" patientId={patient?.id} />}
           {activeTab === 'wound' && <WoundAnalyzer key="wound" />}
-          {activeTab === 'elderly' && <ElderlyCheckIn key="elderly" patient={patient} onCheckInComplete={() => fetchPatient('123')} onUpdateDeadline={(time) => updateProfile({ checkInDeadline: time })} />}
+          {activeTab === 'elderly' && <ElderlyCheckIn key="elderly" patient={patient} onUpdateDeadline={(time) => updateProfile({ checkInDeadline: time })} />}
           {activeTab === 'emergency' && <EmergencyTab key="emergency" />}
           {activeTab === 'profile' && <ProfileTab key="profile" patient={patient} onUpdate={updateProfile} />}
         </AnimatePresence>
@@ -215,7 +456,7 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
   );
 }
 
-function SymptomAnalyzer({ patientId, onAnalysisComplete }: { patientId?: string, onAnalysisComplete: () => void }) {
+function SymptomAnalyzer({ patientId }: { patientId?: string }) {
   const [input, setInput] = useState('');
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
   const [result, setResult] = useState<any>(null);
@@ -230,19 +471,39 @@ function SymptomAnalyzer({ patientId, onAnalysisComplete }: { patientId?: string
   ];
 
   const handleAnalyze = async () => {
-    const symptoms = input || selectedSymptoms.join(', ');
-    if (!symptoms) return;
+    const symptomsText = input || selectedSymptoms.join(', ');
+    if (!symptomsText) return;
 
     setLoading(true);
     try {
-      const res = await fetch('/api/analyze-symptoms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symptoms, patientId, isElderly: true })
-      });
-      const data = await res.json();
+      const data = await analyzeSymptoms(symptomsText, true);
       setResult(data);
-      onAnalysisComplete();
+      
+      // Save to Firestore
+      if (patientId) {
+        await addDoc(collection(db, 'symptoms'), {
+          patientID: patientId,
+          Symptom: symptomsText,
+          riskLevel: data.risk_level || 'Low',
+          confidenceScore: data.confidence || 0,
+          date: new Date().toISOString()
+        }).catch(err => handleFirestoreError(err, OperationType.CREATE, 'symptoms'));
+
+        // Update patient history
+        const patientRef = doc(db, 'users', patientId);
+        const patientDoc = await getDoc(patientRef);
+        if (patientDoc.exists()) {
+          const currentHistory = patientDoc.data().history || [];
+          const newHistory = [{
+            date: new Date().toLocaleDateString(),
+            condition: data.condition,
+            risk: data.risk_level
+          }, ...currentHistory].slice(0, 5);
+          
+          await updateDoc(patientRef, { history: newHistory });
+        }
+      }
+
       speak(data.advice);
     } catch (err) {
       console.error(err);
@@ -399,19 +660,18 @@ function WoundAnalyzer() {
   const handleAnalyze = async () => {
     if (!image) return;
     setLoading(true);
-    const formData = new FormData();
-    formData.append('image', image);
 
     try {
-      const res = await fetch('/api/analyze-wound', {
-        method: 'POST',
-        body: formData
-      });
-      const data = await res.json();
-      setResult(data);
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64 = (reader.result as string).split(',')[1];
+        const data = await analyzeWound(base64, image.type);
+        setResult(data);
+        setLoading(false);
+      };
+      reader.readAsDataURL(image);
     } catch (err) {
       console.error(err);
-    } finally {
       setLoading(false);
     }
   };
@@ -481,7 +741,7 @@ function WoundAnalyzer() {
   );
 }
 
-function ElderlyCheckIn({ patient, onCheckInComplete, onUpdateDeadline }: { patient: Patient | null, onCheckInComplete: () => void, onUpdateDeadline: (time: string) => void }) {
+function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null, onUpdateDeadline: (time: string) => void }) {
   const [mood, setMood] = useState('');
   const [vitals, setVitals] = useState('');
   const [result, setResult] = useState<any>(null);
@@ -492,14 +752,24 @@ function ElderlyCheckIn({ patient, onCheckInComplete, onUpdateDeadline }: { pati
     if (!patient) return;
     setLoading(true);
     try {
-      const res = await fetch('/api/check-in-elderly', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mood, vitals, patientId: patient.id })
-      });
-      const data = await res.json();
+      const data = await checkInElderly(mood, vitals);
       setResult(data);
-      onCheckInComplete();
+      
+      // Save to Firestore
+      await addDoc(collection(db, 'moods'), {
+        patientID: patient.id,
+        date: new Date().toISOString(),
+        mood: mood,
+        remark: vitals
+      }).catch(err => handleFirestoreError(err, OperationType.CREATE, 'moods'));
+
+      // Update patient profile
+      const patientRef = doc(db, 'users', patient.id);
+      await updateDoc(patientRef, {
+        lastCheckIn: new Date().toISOString(),
+        deadlineMissed: false
+      }).catch(err => handleFirestoreError(err, OperationType.UPDATE, `users/${patient.id}`));
+
     } catch (err) {
       console.error(err);
     } finally {
@@ -613,12 +883,36 @@ function EmergencyTab() {
       setLocation(loc);
 
       try {
-        const res = await fetch('/api/emergency', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ situation, location: loc, patientId: '123' })
-        });
-        const data = await res.json();
+        // Logic to determine facility type based on situation
+        let facilityType = "Hospital";
+        let severity = "High";
+
+        if (situation.toLowerCase().includes("allergic") || situation.toLowerCase().includes("rash")) {
+          facilityType = "Pharmacy/Clinic";
+          severity = "Medium";
+        } else if (situation.toLowerCase().includes("asthma") || situation.toLowerCase().includes("seizure") || situation.toLowerCase().includes("heart")) {
+          facilityType = "Hospital (Emergency Room)";
+          severity = "Critical";
+        }
+
+        // Mock finding nearest facilities based on type
+        const facilities = facilityType === "Pharmacy/Clinic" ? [
+          { name: "Green Cross Pharmacy", distance: "0.4km", contact: "555-0101", type: "Pharmacy" },
+          { name: "Neighborhood Clinic", distance: "0.8km", contact: "555-0102", type: "Clinic" }
+        ] : [
+          { name: "City General Hospital", distance: "1.2km", contact: "911-001", type: "Hospital" },
+          { name: "St. Jude Medical Center", distance: "2.5km", contact: "911-002", type: "Hospital" }
+        ];
+
+        const data = {
+          status: "Emergency Triggered",
+          severity,
+          recommendedFacility: facilityType,
+          facilities,
+          instructions: severity === "Critical" 
+            ? "Ambulance dispatched. Stay on the line. Do not move the patient." 
+            : "Please visit the nearest facility listed below for immediate treatment."
+        };
         setEmergencyData(data);
       } catch (err) {
         console.error(err);
