@@ -122,11 +122,7 @@ interface Patient {
   checkInDeadline: string;
   lastCheckIn: string | null;
   deadlineMissed: boolean;
-  history: Array<{ date: string; condition: string; risk: string }>;
-  riskAlerts: Array<{ date: string; message: string }>;
 }
-
-
 
 // --- Components ---
 
@@ -183,8 +179,6 @@ export default function App() {
           checkInDeadline: data.checkInDeadline || '09:00',
           lastCheckIn: data.lastCheckIn || null,
           deadlineMissed: data.deadlineMissed || false,
-          history: data.history || [],
-          riskAlerts: data.riskAlerts || []
         });
       } else {
         // Initialize patient profile if it doesn't exist
@@ -195,12 +189,9 @@ export default function App() {
           patientAddress: '',
           patientContactNo: '',
           patientEmergencyContact: '',
-          patientHistory: '',
           checkInDeadline: '09:00',
           lastCheckIn: null,
-          deadlineMissed: false,
-          history: [],
-          riskAlerts: []
+          deadlineMissed: false
         };
         setDoc(patientRef, initialPatient).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));
       }
@@ -385,6 +376,30 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
 // --- Tab Components ---
 
 function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmergency: () => void }) {
+  console.log(patient);
+  const [symptomHistory, setSymptomHistory] = useState<any[]>([]);
+  console.log(symptomHistory);
+
+  useEffect(() => {
+    if (!patient?.id) return;
+    const q = query(
+      collection(db, 'symptoms'),
+      where('patientID', '==', patient.id),
+      orderBy('date', 'desc'),
+      limit(5)
+    );
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setSymptomHistory(snap.docs.map(d => ({
+        condition: d.data().topCondition || d.data().Symptom,
+        risk: d.data().riskLevel,
+        date: new Date(d.data().date).toLocaleDateString()
+      })));
+    }, (err) => console.error('Symptom history error:', err));
+    return () => unsubscribe();
+  }, [patient?.id]);
+
+  const highRiskAlerts = symptomHistory.filter(h => h.risk === 'High');
+
   if (!patient) return <div className="flex items-center justify-center h-64">Loading Dashboard...</div>;
 
   return (
@@ -422,15 +437,19 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
             </h2>
           </div>
           <div className="space-y-3">
-            {patient.history.map((h, i) => (
-              <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl">
-                <div>
-                  <p className="font-semibold">{h.condition}</p>
-                  <p className="text-xs text-slate-400">{h.date}</p>
+            {symptomHistory.length === 0 ? (
+              <p className="text-slate-400 text-sm italic">No symptom records yet.</p>
+            ) : (
+              symptomHistory.map((h, i) => (
+                <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl">
+                  <div>
+                    <p className="font-semibold">{h.condition}</p>
+                    <p className="text-xs text-slate-400">{h.date}</p>
+                  </div>
+                  <RiskBadge level={h.risk} />
                 </div>
-                <RiskBadge level={h.risk} />
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
@@ -440,10 +459,11 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
             Risk Alerts
           </h2>
           <div className="space-y-3">
-            {patient.riskAlerts.length > 0 ? (
-              patient.riskAlerts.map((a, i) => (
+            {highRiskAlerts.length > 0 ? (
+              highRiskAlerts.map((a, i) => (
                 <div key={i} className="p-3 bg-orange-50 border border-orange-100 rounded-2xl text-sm text-orange-800">
-                  {a.message}
+                  <p className="font-semibold">{a.condition}</p>
+                  <p className="text-xs text-orange-600 mt-1">{a.date}</p>
                 </div>
               ))
             ) : (
@@ -462,6 +482,9 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [conversationContext, setConversationContext] = useState('');
+  const [followUpAnswer, setFollowUpAnswer] = useState('');
+  const [followUpLoading, setFollowUpLoading] = useState(false);
 
   const commonIllnesses = [
     { name: "Fever", symptoms: ["High temperature", "Chills", "Sweating", "Headache"] },
@@ -475,33 +498,26 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
     if (!symptomsText) return;
 
     setLoading(true);
+    setResult(null);
+    setConversationContext('');
+    setFollowUpAnswer('');
+
     try {
-      const data = await analyzeSymptoms(symptomsText, true);
+      const data = await analyzeSymptoms(symptomsText, '');
+      console.log("Data: ", data);
       setResult(data);
-      
-      // Save to Firestore
+      setConversationContext(`User symptoms: ${symptomsText}`);
+
+      // Save to Firestore — symptoms collection only
       if (patientId) {
         await addDoc(collection(db, 'symptoms'), {
           patientID: patientId,
           Symptom: symptomsText,
+          topCondition: data.topCondition || '',
           riskLevel: data.risk_level || 'Low',
-          confidenceScore: data.confidence || 0,
+          confidenceScore: data.possibleConditions?.[0]?.confidence || 0,
           date: new Date().toISOString()
         }).catch(err => handleFirestoreError(err, OperationType.CREATE, 'symptoms'));
-
-        // Update patient history
-        const patientRef = doc(db, 'users', patientId);
-        const patientDoc = await getDoc(patientRef);
-        if (patientDoc.exists()) {
-          const currentHistory = patientDoc.data().history || [];
-          const newHistory = [{
-            date: new Date().toLocaleDateString(),
-            condition: data.condition,
-            risk: data.risk_level
-          }, ...currentHistory].slice(0, 5);
-          
-          await updateDoc(patientRef, { history: newHistory });
-        }
       }
 
       speak(data.advice);
@@ -512,8 +528,24 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
     }
   };
 
+  const handleFollowUp = async () => {
+    if (!followUpAnswer.trim()) return;
+    setFollowUpLoading(true);
+    try {
+      const updatedContext = `${conversationContext}\nFollow-up answer: ${followUpAnswer}`;
+      const data = await analyzeSymptoms(followUpAnswer, updatedContext);
+      setResult(data);
+      setConversationContext(updatedContext);
+      setFollowUpAnswer('');
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setFollowUpLoading(false);
+    }
+  };
+
   const toggleSymptom = (s: string) => {
-    setSelectedSymptoms(prev => 
+    setSelectedSymptoms(prev =>
       prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]
     );
   };
@@ -605,14 +637,27 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
       {result && (
         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl space-y-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold text-blue-600">{result.condition}</h2>
-            <div className="flex items-center gap-4">
-              <div className="text-right">
-                <p className="text-[10px] text-slate-400 uppercase font-bold">Confidence</p>
-                <p className="font-bold text-blue-600">{result.confidence}%</p>
+            <h2 className="text-2xl font-bold text-blue-600">{result.topCondition}</h2>
+            <RiskBadge level={result.risk_level} />
+          </div>
+
+          {/* 5 Possible Conditions */}
+          <div className="space-y-2">
+            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">Possible Conditions</h3>
+            {result.possibleConditions?.map((c: any, i: number) => (
+              <div key={i} className="space-y-1">
+                <div className="flex justify-between text-sm">
+                  <span className={cn("font-medium", i === 0 ? "text-blue-600" : "text-slate-700")}>{c.name}</span>
+                  <span className="text-slate-400">{c.confidence}%</span>
+                </div>
+                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className={cn("h-2 rounded-full", i === 0 ? "bg-blue-500" : "bg-slate-300")}
+                    style={{ width: `${c.confidence}%` }}
+                  />
+                </div>
               </div>
-              <RiskBadge level={result.risk_level} />
-            </div>
+            ))}
           </div>
 
           <div className="prose prose-slate max-w-none">
@@ -624,8 +669,8 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
             <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3">
               <AlertCircle className="text-red-600 shrink-0" />
               <div>
-                <p className="font-bold text-red-900">Elderly Check-In Triggered</p>
-                <p className="text-sm text-red-700">Based on your symptoms, we recommend completing a full health check-in immediately.</p>
+                <p className="font-bold text-red-900">Urgent Check-In Recommended</p>
+                <p className="text-sm text-red-700">Based on your symptoms, please complete a full health check-in immediately.</p>
               </div>
             </div>
           )}
@@ -637,6 +682,33 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
             <Volume2 size={20} />
             Listen to Advice
           </button>
+
+          {/* Follow-up Question */}
+          {result.followUpQuestion && (
+            <div className="border-t border-slate-100 pt-6 space-y-3">
+              <div className="flex items-start gap-3 p-4 bg-blue-50 rounded-2xl">
+                <Info size={18} className="text-blue-500 shrink-0 mt-0.5" />
+                <p className="text-blue-800 text-sm font-medium">{result.followUpQuestion}</p>
+              </div>
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  value={followUpAnswer}
+                  onChange={(e) => setFollowUpAnswer(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleFollowUp()}
+                  placeholder="Type your answer here..."
+                  className="flex-1 px-4 py-3 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                />
+                <button
+                  onClick={handleFollowUp}
+                  disabled={followUpLoading || !followUpAnswer.trim()}
+                  className="px-5 py-3 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center gap-2"
+                >
+                  {followUpLoading ? "..." : <><ChevronRight size={18} /></>}
+                </button>
+              </div>
+            </div>
+          )}
         </motion.div>
       )}
     </motion.div>
@@ -864,8 +936,15 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
   );
 }
 
+function getDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 function EmergencyTab() {
-  const [location, setLocation] = useState<any>(null);
   const [emergencyData, setEmergencyData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
@@ -878,44 +957,66 @@ function EmergencyTab() {
 
   const triggerEmergency = async (situation: string) => {
     setLoading(true);
+    setEmergencyData(null);
+
     navigator.geolocation.getCurrentPosition(async (pos) => {
-      const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      setLocation(loc);
+      const { latitude: lat, longitude: lng } = pos.coords;
 
       try {
-        // Logic to determine facility type based on situation
-        let facilityType = "Hospital";
         let severity = "High";
+        const s = situation.toLowerCase();
+        if (s.includes("allergic")) severity = "Medium";
+        else if (s.includes("asthma") || s.includes("seizure") || s.includes("heart")) severity = "Critical";
 
-        if (situation.toLowerCase().includes("allergic") || situation.toLowerCase().includes("rash")) {
-          facilityType = "Pharmacy/Clinic";
-          severity = "Medium";
-        } else if (situation.toLowerCase().includes("asthma") || situation.toLowerCase().includes("seizure") || situation.toLowerCase().includes("heart")) {
-          facilityType = "Hospital (Emergency Room)";
-          severity = "Critical";
-        }
+        // OpenStreetMap Overpass API — find hospitals and clinics within 10km
+        const overpassQuery = `
+          [out:json][timeout:15];
+          (
+            node["amenity"="hospital"](around:10000,${lat},${lng});
+            way["amenity"="hospital"](around:10000,${lat},${lng});
+            node["amenity"="clinic"](around:10000,${lat},${lng});
+            way["amenity"="clinic"](around:10000,${lat},${lng});
+          );
+          out center;
+        `;
 
-        // Mock finding nearest facilities based on type
-        const facilities = facilityType === "Pharmacy/Clinic" ? [
-          { name: "Green Cross Pharmacy", distance: "0.4km", contact: "555-0101", type: "Pharmacy" },
-          { name: "Neighborhood Clinic", distance: "0.8km", contact: "555-0102", type: "Clinic" }
-        ] : [
-          { name: "City General Hospital", distance: "1.2km", contact: "911-001", type: "Hospital" },
-          { name: "St. Jude Medical Center", distance: "2.5km", contact: "911-002", type: "Hospital" }
-        ];
+        const response = await fetch("https://overpass-api.de/api/interpreter", {
+          method: "POST",
+          body: overpassQuery,
+        });
 
-        const data = {
-          status: "Emergency Triggered",
+        const osmData = await response.json();
+
+        const facilities = osmData.elements
+          .map((el: any) => {
+            const elLat = el.lat ?? el.center?.lat;
+            const elLng = el.lon ?? el.center?.lon;
+            if (!elLat || !elLng) return null;
+            const distance = getDistance(lat, lng, elLat, elLng);
+            const name = el.tags?.name;
+            if (!name) return null;
+            return {
+              name,
+              type: el.tags?.amenity === "hospital" ? "Hospital" : "Clinic",
+              distance,
+              distanceStr: distance < 1 ? `${Math.round(distance * 1000)}m` : `${distance.toFixed(1)}km`,
+              phone: el.tags?.phone || el.tags?.["contact:phone"] || null,
+            };
+          })
+          .filter(Boolean)
+          .sort((a: any, b: any) => a.distance - b.distance)
+          .slice(0, 5);
+
+        setEmergencyData({
           severity,
-          recommendedFacility: facilityType,
           facilities,
-          instructions: severity === "Critical" 
-            ? "Ambulance dispatched. Stay on the line. Do not move the patient." 
-            : "Please visit the nearest facility listed below for immediate treatment."
-        };
-        setEmergencyData(data);
+          instructions: severity === "Critical"
+            ? "Call an ambulance immediately. Stay calm, do not move the patient unless necessary."
+            : "Please make your way to the nearest facility listed below for treatment.",
+        });
       } catch (err) {
-        console.error(err);
+        console.error("OSM fetch error:", err);
+        setEmergencyData({ severity: "Unknown", facilities: [], instructions: "Could not fetch nearby facilities. Please call emergency services directly." });
       } finally {
         setLoading(false);
       }
@@ -937,9 +1038,10 @@ function EmergencyTab() {
             <p className="text-sm text-slate-600 whitespace-pre-line">{e.advice}</p>
             <button 
               onClick={() => triggerEmergency(e.title)}
-              className="w-full bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition-colors"
+              disabled={loading}
+              className="w-full bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition-colors disabled:opacity-60"
             >
-              Request Help for {e.title}
+              {loading ? "Finding nearby facilities..." : `Request Help for ${e.title}`}
             </button>
           </div>
         ))}
@@ -953,23 +1055,37 @@ function EmergencyTab() {
             </div>
             <div>
               <h2 className="text-2xl font-bold">{emergencyData.severity} Severity</h2>
-              <p className="text-red-100">Recommended: {emergencyData.recommendedFacility}</p>
+              <p className="text-red-100">Showing nearest hospitals & clinics</p>
             </div>
           </div>
 
           <div className="space-y-4">
-            <h3 className="font-bold border-b border-red-500 pb-2">Nearest {emergencyData.recommendedFacility} Facilities</h3>
-            {emergencyData.facilities.map((h: any, i: number) => (
-              <div key={i} className="flex items-center justify-between bg-white/10 p-4 rounded-2xl">
-                <div>
-                  <p className="font-bold">{h.name}</p>
-                  <p className="text-xs text-red-100">{h.distance} away • {h.type}</p>
+            <h3 className="font-bold border-b border-red-500 pb-2">Nearest Medical Facilities</h3>
+            {emergencyData.facilities.length === 0 ? (
+              <p className="text-red-100 text-sm italic">No facilities found nearby. Please call emergency services directly.</p>
+            ) : (
+              emergencyData.facilities.map((h: any, i: number) => (
+                <div key={i} className="flex items-center justify-between bg-white/10 p-4 rounded-2xl">
+                  <div>
+                    <p className="font-bold">{h.name}</p>
+                    <p className="text-xs text-red-100">{h.distanceStr} away • {h.type}</p>
+                    {h.phone && <p className="text-xs text-red-200 mt-0.5">{h.phone}</p>}
+                  </div>
+                  {h.phone ? (
+                    <a
+                      href={`tel:${h.phone}`}
+                      className="bg-white text-red-600 px-4 py-2 rounded-xl font-bold text-sm shrink-0"
+                    >
+                      Call
+                    </a>
+                  ) : (
+                    <span className="bg-white/30 text-white/60 px-4 py-2 rounded-xl font-bold text-sm shrink-0 cursor-not-allowed">
+                      No number
+                    </span>
+                  )}
                 </div>
-                <a href={`tel:${h.contact}`} className="bg-white text-red-600 px-4 py-2 rounded-xl font-bold text-sm">
-                  Call
-                </a>
-              </div>
-            ))}
+              ))
+            )}
           </div>
           <p className="text-sm bg-red-700/50 p-4 rounded-xl italic">{emergencyData.instructions}</p>
         </motion.div>

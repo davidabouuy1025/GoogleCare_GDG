@@ -2,13 +2,15 @@
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
+**Prerequisites:**  Node.js, Python
 
 1. Install dependencies:
    `npm install`
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+4. To stop the program, use `CTRL + C`
+5. Things may help you: `netstat -ano | findstr : <PORT>` and `taskkill /PID <PID> /f`
 
 ## What does each file do
 ### Core Configuration Files
