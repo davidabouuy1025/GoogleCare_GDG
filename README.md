@@ -3,12 +3,12 @@
 </div>
 
 # Run and deploy your AI Studio app
- 
+
 This contains everything you need to run your app locally.
 
 View your app in AI Studio: https://ai.studio/apps/62e8e4cd-2b93-4611-9dc9-21353ab0b878
 
-## Run Locally 
+## Run Locally
 
 **Prerequisites:**  Node.js
 
