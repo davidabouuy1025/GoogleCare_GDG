@@ -4,6 +4,6 @@ import { getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-console.log('Initializing Firestore with default database');
+console.log('Firebase.ts: Initializing Firestore with default database');
 export const db = getFirestore(app);
 export const auth = getAuth();
