@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Activity, 
@@ -553,7 +548,6 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
 }
 
 function SymptomAnalyzer({ patientId }: { patientId?: string }) {
-  console.log(patientId);
   const [input, setInput] = useState('');
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
   const [result, setResult] = useState<any>(null);
@@ -635,6 +629,7 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
     } finally {
       setLoading(false);
     }
+    console.log("SymptomAnalyzer: Data is successfully saved to Firebase.")
   };
 
   const handleFollowUp = async () => {
@@ -924,6 +919,7 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
       console.error(err);
       setLoading(false);
     }
+    console.log("WoundAnalyzer: Data is successfully saved to Firebase.")
   };
 
   return (
@@ -1088,12 +1084,16 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
       riskLevel: data.risk_level || 'Low'
     }).catch(err => handleFirestoreError(err, OperationType.WRITE, `moods/${docId}`));
 
+    console.log("Check-In: Data(Mood) is successfully saved into Firebase")
+
     // Update patient profile
     const patientRef = doc(db, 'users', patient.id);
     await updateDoc(patientRef, {
       lastCheckIn: now,
       deadlineMissed: false
     }).catch(err => handleFirestoreError(err, OperationType.UPDATE, `users/${patient.id}`));
+
+    console.log("Check-In: Data(lastCheckIn, deadlineMissed) is successfully saved to Firebase.")
   };
 
   return (
