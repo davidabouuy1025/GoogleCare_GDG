@@ -689,6 +689,8 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
     window.speechSynthesis.speak(utterance);
   };
 
+  const disableButton = true;
+
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
       <h1 className="text-3xl font-bold">Symptom Analysis</h1>
@@ -844,7 +846,7 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
                 />
                 <button
                   onClick={handleFollowUp}
-                  disabled={followUpLoading || !followUpAnswer.trim() || cooldownRemaining > 0}
+                  disabled={disableButton && followUpLoading || !followUpAnswer.trim() || cooldownRemaining > 0}
                   className="px-5 py-3 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center gap-2"
                 >
                   {followUpLoading ? "..." : cooldownRemaining > 0 ? `${Math.ceil(cooldownRemaining / 1000)}s` : <><ChevronRight size={18} /></>}
