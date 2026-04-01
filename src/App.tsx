@@ -1252,10 +1252,10 @@ function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: (
   const emergencyContact = patient.emergencyContact;
 
   const emergencies = [
-    { title: "Seizure", advice: "1. Cushion head. 2. Loosen tight clothing. 3. Turn on side. 4. Do NOT put anything in mouth. 5. Time the seizure." },
-    { title: "Asthma Attack", advice: "1. Sit upright. 2. Take slow, steady breaths. 3. Use inhaler (blue). 4. Seek help if no improvement." },
-    { title: "Allergic Reaction", advice: "1. Use EpiPen if available. 2. Call emergency services. 3. Lay flat with legs raised. 4. Monitor breathing." },
-    { title: "Heart Attack", advice: "1. Call 911 immediately. 2. Chew aspirin if not allergic. 3. Sit and stay calm. 4. Loosen clothing." }
+    { title: "Heart Attack", advice: "1. Call 911 immediately. \n2. Chew aspirin if not allergic. \n3. Sit and stay calm. \n4. Loosen clothing.\n5. Apply CPR if losing pulse" },
+    { title: "Seizure", advice: "1. Cushion head. \n2. Loosen tight clothing. \n3. Turn on side. \n4. Do NOT put anything in mouth. \n5. Time the seizure." },
+    { title: "Asthma Attack", advice: "1. Sit upright. \n2. Take slow, steady breaths. \n3. Use inhaler (blue). \n4. Seek help if no improvement." },
+    { title: "Allergic Reaction", advice: "1. Use EpiPen if available. \n2. Call emergency services. \n3. Lay flat with legs raised. \n4. Monitor breathing." },
   ];
 
   const triggerEmergency = async (situation: string) => {
@@ -1440,7 +1440,7 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-      <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">⚙️ Setting & Profile</h1>
+      <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">⚙️ Profile & Profile</h1>
       
       <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm space-y-8">
         <div className="flex items-center gap-6">
