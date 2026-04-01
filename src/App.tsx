@@ -1397,6 +1397,23 @@ function EmergencyTab() {
 function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: (updates: Partial<Patient>) => void }) {
   if (!patient) return null;
 
+  const [aiStatus, setAiStatus] = useState<'online' | 'offline' | 'checking' | null>(null);
+
+  const checkAiStatus = async () => {
+    setAiStatus('checking');
+    try {
+      // Simple lightweight call to check if quota is available
+      await analyzeSymptoms("status check", "This is a system health check. Please respond with a valid JSON.");
+      setAiStatus('online');
+    } catch (err: any) {
+      if (err.message?.includes("429") || err.message?.toLowerCase().includes("quota")) {
+        setAiStatus('offline');
+      } else {
+        setAiStatus('offline');
+      }
+    }
+  };
+
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
       <h1 className="text-3xl font-bold">Patient Profile</h1>
@@ -1422,6 +1439,29 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
           <EditableField label="Contact Number" value={patient.contact} onSave={(val) => onUpdate({ contact: val })} />
           <EditableField label="Address" value={patient.address} onSave={(val) => onUpdate({ address: val })} />
           <EditableField label="Emergency Contact" value={patient.emergencyContact} onSave={(val) => onUpdate({ emergencyContact: val })} />
+        </div>
+
+        <div className="pt-6 border-t border-slate-100">
+          <h3 className="font-bold mb-4">System Status</h3>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+              <div>
+                <p className="font-bold">AI Diagnostic Engine</p>
+                <p className="text-xs text-slate-400">Check if the AI analysis service is available</p>
+              </div>
+              <div className="flex items-center gap-3">
+                {aiStatus === 'online' && <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-lg">ONLINE</span>}
+                {aiStatus === 'offline' && <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded-lg">QUOTA FULL</span>}
+                <button 
+                  onClick={checkAiStatus}
+                  disabled={aiStatus === 'checking'}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition-all"
+                >
+                  {aiStatus === 'checking' ? 'Checking...' : 'Test Connection'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="pt-6 border-t border-slate-100">
