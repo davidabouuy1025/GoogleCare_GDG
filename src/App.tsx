@@ -48,9 +48,27 @@ import {
   Timestamp,
   getDocFromServer
 } from 'firebase/firestore';
-import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  onAuthStateChanged, 
+  signInAnonymously,
+  User as FirebaseUser 
+} from 'firebase/auth';
 import { db, auth } from './firebase';
 import { analyzeSymptoms, checkInElderly, analyzeWound } from './services/aiService';
+
+// --- Local Knowledge Base (to minimize AI usage) ---
+const COMMON_CAUSES: Record<string, string> = {
+  "headache": "Common causes: Dehydration, stress, eye strain, or lack of sleep. Try drinking water and resting in a dark room.",
+  "fever": "Common causes: Viral infection, cold, or flu. Monitor your temperature and stay hydrated.",
+  "sore throat": "Common causes: Common cold, allergies, or dry air. Try warm salt water gargles.",
+  "cough": "Common causes: Post-nasal drip, allergies, or a lingering cold. Stay hydrated and use a humidifier.",
+  "nausea": "Common causes: Indigestion, motion sickness, or mild food poisoning. Sip clear liquids and rest.",
+  "fatigue": "Common causes: Lack of sleep, stress, or minor illness. Ensure you're getting enough rest and nutrition."
+};
+
+const AI_COOLDOWN_MS = 30000; // 30 seconds cooldown for AI calls
 
 // --- Utility ---
 function cn(...inputs: ClassValue[]) {
@@ -184,7 +202,7 @@ export default function App() {
         // Initialize patient profile if it doesn't exist
         const initialPatient = {
           patientID: user.uid,
-          patientName: user.displayName || '',
+          patientName: user.displayName || 'Guest',
           patientAge: 0,
           patientAddress: '',
           patientContactNo: '',
@@ -193,6 +211,17 @@ export default function App() {
           lastCheckIn: null,
           deadlineMissed: false
         };
+        setPatient({
+          id: user.uid,
+          name: initialPatient.patientName,
+          age: initialPatient.patientAge,
+          contact: initialPatient.patientContactNo,
+          address: initialPatient.patientAddress,
+          emergencyContact: initialPatient.patientEmergencyContact,
+          checkInDeadline: initialPatient.checkInDeadline,
+          lastCheckIn: initialPatient.lastCheckIn,
+          deadlineMissed: initialPatient.deadlineMissed,
+        });
         setDoc(patientRef, initialPatient).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));
       }
     }, (error) => {
@@ -212,14 +241,13 @@ export default function App() {
   };
 
   const loginAnonymously = async () => {
-  const { signInAnonymously } = await import('firebase/auth');
-  try {
-    await signInAnonymously(auth);
-    setShowGuestModal(false);
-  } catch (err) {
-    console.error("Anonymous login failed", err);
-  }
-};
+    try {
+      await signInAnonymously(auth);
+      setShowGuestModal(false);
+    } catch (err) {
+      console.error("Anonymous login failed", err);
+    }
+  };
 
   const updateProfile = async (updates: Partial<Patient>) => {
     if (!user) return;
@@ -348,7 +376,7 @@ export default function App() {
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && <Dashboard key="dashboard" patient={patient} onEmergency={() => setActiveTab('emergency')} />}
           {activeTab === 'symptoms' && <SymptomAnalyzer key="symptoms" patientId={patient?.id} />}
-          {activeTab === 'wound' && <WoundAnalyzer key="wound" />}
+          {activeTab === 'wound' && <WoundAnalyzer key="wound" patientId={patient?.id} />}
           {activeTab === 'elderly' && <ElderlyCheckIn key="elderly" patient={patient} onUpdateDeadline={(time) => updateProfile({ checkInDeadline: time })} />}
           {activeTab === 'emergency' && <EmergencyTab key="emergency" />}
           {activeTab === 'profile' && <ProfileTab key="profile" patient={patient} onUpdate={updateProfile} />}
@@ -378,7 +406,6 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
 function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmergency: () => void }) {
   console.log(patient);
   const [symptomHistory, setSymptomHistory] = useState<any[]>([]);
-  console.log(symptomHistory);
 
   useEffect(() => {
     if (!patient?.id) return;
@@ -485,6 +512,17 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
   const [conversationContext, setConversationContext] = useState('');
   const [followUpAnswer, setFollowUpAnswer] = useState('');
   const [followUpLoading, setFollowUpLoading] = useState(false);
+  const [lastAiCall, setLastAiCall] = useState<number>(0);
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+
+  useEffect(() => {
+    if (cooldownRemaining > 0) {
+      const timer = setInterval(() => {
+        setCooldownRemaining(prev => Math.max(0, prev - 1000));
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [cooldownRemaining]);
 
   const commonIllnesses = [
     { name: "Fever", symptoms: ["High temperature", "Chills", "Sweating", "Headache"] },
@@ -493,9 +531,28 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
     { name: "Skin", symptoms: ["Rashes", "Itching", "Redness", "Swelling"] }
   ];
 
+  const [localAdvice, setLocalAdvice] = useState<string | null>(null);
+
   const handleAnalyze = async () => {
     const symptomsText = input || selectedSymptoms.join(', ');
     if (!symptomsText) return;
+
+    // Check cooldown
+    const now = Date.now();
+    if (now - lastAiCall < AI_COOLDOWN_MS) {
+      setCooldownRemaining(AI_COOLDOWN_MS - (now - lastAiCall));
+      return;
+    }
+
+    // Minimize AI usage: Check local knowledge base first
+    const lowerInput = symptomsText.toLowerCase();
+    const foundCause = Object.keys(COMMON_CAUSES).find(cause => lowerInput.includes(cause));
+    if (foundCause && !input.includes("analyze deeply")) {
+      setLocalAdvice(COMMON_CAUSES[foundCause]);
+      // We still allow them to analyze deeply if they want
+    } else {
+      setLocalAdvice(null);
+    }
 
     setLoading(true);
     setResult(null);
@@ -504,12 +561,14 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
 
     try {
       const data = await analyzeSymptoms(symptomsText, '');
-      console.log("Data: ", data);
       setResult(data);
+      setLastAiCall(Date.now());
       setConversationContext(`User symptoms: ${symptomsText}`);
 
       // Save to Firestore — symptoms collection only
       if (patientId) {
+        // console.log("Auth: ", auth.currentUser?.uid);
+        // console.log("Payload: ", patientId, symptomsText, data.topCondition, data.risk_level, data.possibleConditions, new Date().toISOString());
         await addDoc(collection(db, 'symptoms'), {
           patientID: patientId,
           Symptom: symptomsText,
@@ -520,7 +579,9 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
         }).catch(err => handleFirestoreError(err, OperationType.CREATE, 'symptoms'));
       }
 
-      speak(data.advice);
+      if (!data.isQuotaExceeded) {
+        speak(data.advice);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -530,11 +591,20 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
 
   const handleFollowUp = async () => {
     if (!followUpAnswer.trim()) return;
+
+    // Check cooldown
+    const now = Date.now();
+    if (now - lastAiCall < AI_COOLDOWN_MS) {
+      setCooldownRemaining(AI_COOLDOWN_MS - (now - lastAiCall));
+      return;
+    }
+
     setFollowUpLoading(true);
     try {
       const updatedContext = `${conversationContext}\nFollow-up answer: ${followUpAnswer}`;
       const data = await analyzeSymptoms(followUpAnswer, updatedContext);
       setResult(data);
+      setLastAiCall(Date.now());
       setConversationContext(updatedContext);
       setFollowUpAnswer('');
     } catch (err) {
@@ -570,6 +640,9 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
     const utterance = new SpeechSynthesisUtterance(text);
     window.speechSynthesis.speak(utterance);
   };
+
+  
+  const disableButton = true;
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
@@ -626,16 +699,41 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
 
         <button 
           onClick={handleAnalyze}
-          disabled={loading || (!input && selectedSymptoms.length === 0)}
+          disabled={loading || (!input && selectedSymptoms.length === 0) || cooldownRemaining > 0}
           className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
         >
-          {loading ? "Analyzing..." : "Analyze Symptoms"}
+          {loading ? "Analyzing..." : cooldownRemaining > 0 ? `Wait ${Math.ceil(cooldownRemaining / 1000)}s` : "Analyze Symptoms"}
           <ChevronRight size={20} />
         </button>
       </div>
 
+      {localAdvice && !result && (
+        <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl flex items-start gap-3">
+          <Info className="text-blue-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-bold text-blue-900">Quick Tip (Local Check)</p>
+            <p className="text-sm text-blue-700">{localAdvice}</p>
+            <button 
+              onClick={() => { setInput(prev => prev + " (analyze deeply)"); handleAnalyze(); }}
+              className="text-xs font-bold text-blue-600 underline mt-2"
+            >
+              Still concerned? Run full AI analysis
+            </button>
+          </div>
+        </div>
+      )}
+
       {result && (
-        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl space-y-6">
+        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className={cn(
+          "bg-white p-8 rounded-3xl border shadow-xl space-y-6",
+          result.isQuotaExceeded ? "border-amber-200 bg-amber-50/30" : "border-slate-100"
+        )}>
+          {result.isQuotaExceeded && (
+            <div className="bg-amber-100 text-amber-800 p-3 rounded-xl flex items-center gap-2 text-sm font-medium">
+              <AlertTriangle size={18} />
+              AI Quota Reached: Showing simplified assessment.
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-bold text-blue-600">{result.topCondition}</h2>
             <RiskBadge level={result.risk_level} />
@@ -648,12 +746,12 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
               <div key={i} className="space-y-1">
                 <div className="flex justify-between text-sm">
                   <span className={cn("font-medium", i === 0 ? "text-blue-600" : "text-slate-700")}>{c.name}</span>
-                  <span className="text-slate-400">{c.confidence}%</span>
+                  <span className="text-slate-400">{c.confidence* 100}%</span>
                 </div>
                 <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div
                     className={cn("h-2 rounded-full", i === 0 ? "bg-blue-500" : "bg-slate-300")}
-                    style={{ width: `${c.confidence}%` }}
+                    style={{ width: `${c.confidence * 100}%` }}
                   />
                 </div>
               </div>
@@ -699,12 +797,13 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
                   placeholder="Type your answer here..."
                   className="flex-1 px-4 py-3 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none text-sm"
                 />
-                <button
+                
+                <button 
                   onClick={handleFollowUp}
-                  disabled={followUpLoading || !followUpAnswer.trim()}
+                  disabled={disableButton || followUpLoading || !followUpAnswer.trim() || cooldownRemaining > 0}
                   className="px-5 py-3 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center gap-2"
                 >
-                  {followUpLoading ? "..." : <><ChevronRight size={18} /></>}
+                  {followUpLoading ? "..." : cooldownRemaining > 0 ? `${Math.ceil(cooldownRemaining / 1000)}s` : <><ChevronRight size={18} /></>}
                 </button>
               </div>
             </div>
@@ -715,11 +814,22 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
   );
 }
 
-function WoundAnalyzer() {
+function WoundAnalyzer({ patientId }: { patientId?: string }) {
   const [image, setImage] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [lastAiCall, setLastAiCall] = useState<number>(0);
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+
+  useEffect(() => {
+    if (cooldownRemaining > 0) {
+      const timer = setInterval(() => {
+        setCooldownRemaining(prev => Math.max(0, prev - 1000));
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [cooldownRemaining]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -731,7 +841,16 @@ function WoundAnalyzer() {
 
   const handleAnalyze = async () => {
     if (!image) return;
+
+    // Check cooldown
+    const now = Date.now();
+    if (now - lastAiCall < AI_COOLDOWN_MS) {
+      setCooldownRemaining(AI_COOLDOWN_MS - (now - lastAiCall));
+      return;
+    }
+
     setLoading(true);
+    setResult(null);
 
     try {
       const reader = new FileReader();
@@ -739,6 +858,19 @@ function WoundAnalyzer() {
         const base64 = (reader.result as string).split(',')[1];
         const data = await analyzeWound(base64, image.type);
         setResult(data);
+        setLastAiCall(Date.now());
+        
+        // Save to Firestore
+        if (patientId) {
+          await addDoc(collection(db, 'wounds'), {
+            patientID: patientId,
+            type: data.type || 'Unknown',
+            analysis: data.analysis || '',
+            recommendations: data.recommendations || '',
+            date: new Date().toISOString()
+          }).catch(err => handleFirestoreError(err, OperationType.CREATE, 'wounds'));
+        }
+        
         setLoading(false);
       };
       reader.readAsDataURL(image);
@@ -775,15 +907,24 @@ function WoundAnalyzer() {
 
         <button 
           onClick={handleAnalyze}
-          disabled={loading || !image}
+          disabled={loading || !image || cooldownRemaining > 0}
           className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all"
         >
-          {loading ? "Analyzing Image..." : "Analyze Wound"}
+          {loading ? "Analyzing Image..." : cooldownRemaining > 0 ? `Wait ${Math.ceil(cooldownRemaining / 1000)}s` : "Analyze Wound"}
         </button>
       </div>
 
       {result && (
-        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl space-y-6">
+        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className={cn(
+          "bg-white p-8 rounded-3xl border shadow-xl space-y-6",
+          result.isQuotaExceeded ? "border-amber-200 bg-amber-50/30" : "border-slate-100"
+        )}>
+          {result.isQuotaExceeded && (
+            <div className="bg-amber-100 text-amber-800 p-3 rounded-xl flex items-center gap-2 text-sm font-medium">
+              <AlertTriangle size={18} />
+              AI Quota Reached: Showing simplified care instructions.
+            </div>
+          )}
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
               <CheckCircle2 size={24} />
@@ -819,34 +960,70 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [deadline, setDeadline] = useState(patient?.checkInDeadline || '09:00');
+  const [lastAiCall, setLastAiCall] = useState<number>(0);
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+
+  useEffect(() => {
+    if (cooldownRemaining > 0) {
+      const timer = setInterval(() => {
+        setCooldownRemaining(prev => Math.max(0, prev - 1000));
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [cooldownRemaining]);
 
   const handleSubmit = async () => {
     if (!patient) return;
+
+    // Minimize AI usage: Simple check for normal status
+    if (mood === '😊 Happy' && (!vitals || vitals.toLowerCase().includes('normal'))) {
+      const localResult = {
+        risk_detected: false,
+        assessment: "You're doing great! Keep up the positive mood and healthy habits.",
+        risk_level: "Low",
+        isLocal: true
+      };
+      setResult(localResult);
+      await saveCheckIn(localResult);
+      return;
+    }
+
+    // Check cooldown
+    const now = Date.now();
+    if (now - lastAiCall < AI_COOLDOWN_MS) {
+      setCooldownRemaining(AI_COOLDOWN_MS - (now - lastAiCall));
+      return;
+    }
+
     setLoading(true);
     try {
       const data = await checkInElderly(mood, vitals);
       setResult(data);
-      
-      // Save to Firestore
-      await addDoc(collection(db, 'moods'), {
-        patientID: patient.id,
-        date: new Date().toISOString(),
-        mood: mood,
-        remark: vitals
-      }).catch(err => handleFirestoreError(err, OperationType.CREATE, 'moods'));
-
-      // Update patient profile
-      const patientRef = doc(db, 'users', patient.id);
-      await updateDoc(patientRef, {
-        lastCheckIn: new Date().toISOString(),
-        deadlineMissed: false
-      }).catch(err => handleFirestoreError(err, OperationType.UPDATE, `users/${patient.id}`));
-
+      setLastAiCall(Date.now());
+      await saveCheckIn(data);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const saveCheckIn = async (data: any) => {
+    if (!patient) return;
+    // Save to Firestore
+    await addDoc(collection(db, 'moods'), {
+      patientID: patient.id,
+      date: new Date().toISOString(),
+      mood: mood,
+      remark: vitals
+    }).catch(err => handleFirestoreError(err, OperationType.CREATE, 'moods'));
+
+    // Update patient profile
+    const patientRef = doc(db, 'users', patient.id);
+    await updateDoc(patientRef, {
+      lastCheckIn: new Date().toISOString(),
+      deadlineMissed: false
+    }).catch(err => handleFirestoreError(err, OperationType.UPDATE, `users/${patient.id}`));
   };
 
   return (
@@ -905,10 +1082,10 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
 
         <button 
           onClick={handleSubmit}
-          disabled={loading || !mood || !vitals}
+          disabled={loading || !mood || !vitals || cooldownRemaining > 0}
           className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all"
         >
-          {loading ? "Processing..." : "Submit Check-In"}
+          {loading ? "Processing..." : cooldownRemaining > 0 ? `Wait ${Math.ceil(cooldownRemaining / 1000)}s` : "Submit Check-In"}
         </button>
       </div>
 
@@ -918,9 +1095,21 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
           animate={{ opacity: 1, scale: 1 }} 
           className={cn(
             "p-8 rounded-3xl border shadow-xl space-y-4",
+            result.isQuotaExceeded ? "bg-amber-50 border-amber-200" : 
             result.risk_detected ? "bg-red-50 border-red-100" : "bg-green-50 border-green-100"
           )}
         >
+          {result.isQuotaExceeded && (
+            <div className="bg-amber-100 text-amber-800 p-3 rounded-xl flex items-center gap-2 text-sm font-medium">
+              <AlertTriangle size={18} />
+              AI Quota Reached: Showing simplified assessment.
+            </div>
+          )}
+          {result.isLocal && (
+            <div className="bg-blue-100 text-blue-800 p-2 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-block">
+              Local Verification
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <h2 className={cn("text-2xl font-bold", result.risk_detected ? "text-red-600" : "text-green-600")}>
               {result.risk_detected ? "Risk Detected" : "Health Status: Good"}
