@@ -75,6 +75,18 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+function getMalaysiaTime() {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kuala_Lumpur" }));
+}
+
+function getMalaysiaISOString() {
+  return getMalaysiaTime().toISOString();
+}
+
+function getMalaysiaDateKey() {
+  return getMalaysiaTime().toISOString().split('T')[0];
+}
+
 // --- Error Handling ---
 enum OperationType {
   CREATE = 'create',
@@ -404,8 +416,8 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
 // --- Tab Components ---
 
 function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmergency: () => void }) {
-  console.log(patient);
   const [symptomHistory, setSymptomHistory] = useState<any[]>([]);
+  const [moodHistory, setMoodHistory] = useState<any[]>([]);
 
   useEffect(() => {
     if (!patient?.id) return;
@@ -422,6 +434,23 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
         date: new Date(d.data().date).toLocaleDateString()
       })));
     }, (err) => console.error('Symptom history error:', err));
+    return () => unsubscribe();
+  }, [patient?.id]);
+
+  useEffect(() => {
+    if (!patient?.id) return;
+    const q = query(
+      collection(db, 'moods'),
+      where('patientID', '==', patient.id),
+      orderBy('date', 'desc'),
+      limit(5)
+    );
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setMoodHistory(snap.docs.map(d => ({
+        mood: d.data().mood,
+        date: new Date(d.data().date).toLocaleDateString('en-MY', { day: '2-digit', month: 'short' })
+      })));
+    }, (err) => console.error('Mood history error:', err));
     return () => unsubscribe();
   }, [patient?.id]);
 
@@ -454,6 +483,26 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
           EMERGENCY
         </button>
       </header>
+
+      {/* Mood Summary - Last 5 Days */}
+      <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+        <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+          <Heart size={20} className="text-pink-500" />
+          Mood History (Last 5 Days)
+        </h2>
+        <div className="flex justify-between gap-2 overflow-x-auto pb-2">
+          {moodHistory.length === 0 ? (
+            <p className="text-slate-400 text-sm italic">No mood records yet.</p>
+          ) : (
+            moodHistory.map((m, i) => (
+              <div key={i} className="flex flex-col items-center gap-1 min-w-[60px] p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                <span className="text-2xl">{m.mood.split(' ')[0]}</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase">{m.date}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm col-span-2">
@@ -504,6 +553,7 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
 }
 
 function SymptomAnalyzer({ patientId }: { patientId?: string }) {
+  console.log(patientId);
   const [input, setInput] = useState('');
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
   const [result, setResult] = useState<any>(null);
@@ -567,8 +617,6 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
 
       // Save to Firestore — symptoms collection only
       if (patientId) {
-        // console.log("Auth: ", auth.currentUser?.uid);
-        // console.log("Payload: ", patientId, symptomsText, data.topCondition, data.risk_level, data.possibleConditions, new Date().toISOString());
         await addDoc(collection(db, 'symptoms'), {
           patientID: patientId,
           Symptom: symptomsText,
@@ -640,9 +688,6 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
     const utterance = new SpeechSynthesisUtterance(text);
     window.speechSynthesis.speak(utterance);
   };
-
-  
-  const disableButton = true;
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
@@ -746,12 +791,12 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
               <div key={i} className="space-y-1">
                 <div className="flex justify-between text-sm">
                   <span className={cn("font-medium", i === 0 ? "text-blue-600" : "text-slate-700")}>{c.name}</span>
-                  <span className="text-slate-400">{c.confidence* 100}%</span>
+                  <span className="text-slate-400">{c.confidence*100}%</span>
                 </div>
                 <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div
                     className={cn("h-2 rounded-full", i === 0 ? "bg-blue-500" : "bg-slate-300")}
-                    style={{ width: `${c.confidence * 100}%` }}
+                    style={{ width: `${c.confidence*100}%` }}
                   />
                 </div>
               </div>
@@ -797,10 +842,9 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
                   placeholder="Type your answer here..."
                   className="flex-1 px-4 py-3 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none text-sm"
                 />
-                
-                <button 
+                <button
                   onClick={handleFollowUp}
-                  disabled={disableButton || followUpLoading || !followUpAnswer.trim() || cooldownRemaining > 0}
+                  disabled={followUpLoading || !followUpAnswer.trim() || cooldownRemaining > 0}
                   className="px-5 py-3 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center gap-2"
                 >
                   {followUpLoading ? "..." : cooldownRemaining > 0 ? `${Math.ceil(cooldownRemaining / 1000)}s` : <><ChevronRight size={18} /></>}
@@ -962,6 +1006,7 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
   const [deadline, setDeadline] = useState(patient?.checkInDeadline || '09:00');
   const [lastAiCall, setLastAiCall] = useState<number>(0);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
+  const [moodHistory, setMoodHistory] = useState<any[]>([]);
 
   useEffect(() => {
     if (cooldownRemaining > 0) {
@@ -971,6 +1016,22 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
       return () => clearInterval(timer);
     }
   }, [cooldownRemaining]);
+
+  useEffect(() => {
+    if (!patient?.id) return;
+    const q = query(
+      collection(db, 'moods'),
+      where('patientID', '==', patient.id),
+      orderBy('date', 'desc')
+    );
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setMoodHistory(snap.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      })));
+    }, (err) => console.error('Mood history error:', err));
+    return () => unsubscribe();
+  }, [patient?.id]);
 
   const handleSubmit = async () => {
     if (!patient) return;
@@ -1010,18 +1071,25 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
 
   const saveCheckIn = async (data: any) => {
     if (!patient) return;
-    // Save to Firestore
-    await addDoc(collection(db, 'moods'), {
+    
+    const dateKey = getMalaysiaDateKey();
+    const docId = `${patient.id}_${dateKey}`;
+    const now = getMalaysiaISOString();
+
+    // Save to Firestore - Use setDoc with a predictable ID to ensure only one record per day
+    await setDoc(doc(db, 'moods', docId), {
       patientID: patient.id,
-      date: new Date().toISOString(),
+      date: now,
       mood: mood,
-      remark: vitals
-    }).catch(err => handleFirestoreError(err, OperationType.CREATE, 'moods'));
+      remark: vitals,
+      assessment: data.assessment || '',
+      riskLevel: data.risk_level || 'Low'
+    }).catch(err => handleFirestoreError(err, OperationType.WRITE, `moods/${docId}`));
 
     // Update patient profile
     const patientRef = doc(db, 'users', patient.id);
     await updateDoc(patientRef, {
-      lastCheckIn: new Date().toISOString(),
+      lastCheckIn: now,
       deadlineMissed: false
     }).catch(err => handleFirestoreError(err, OperationType.UPDATE, `users/${patient.id}`));
   };
@@ -1121,6 +1189,47 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
           </p>
         </motion.div>
       )}
+
+      {/* Mood History List */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-bold flex items-center gap-2">
+          <History size={24} className="text-blue-600" />
+          Mood Check-In History
+        </h2>
+        <div className="space-y-3">
+          {moodHistory.length === 0 ? (
+            <div className="bg-white p-8 rounded-3xl border border-slate-100 text-center text-slate-400 italic">
+              No check-in history yet.
+            </div>
+          ) : (
+            moodHistory.map((h, i) => (
+              <div key={h.id} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">{h.mood.split(' ')[0]}</span>
+                    <div>
+                      <p className="font-bold text-slate-800">{h.mood.split(' ').slice(1).join(' ')}</p>
+                      <p className="text-xs text-slate-400">{new Date(h.date).toLocaleString('en-MY')}</p>
+                    </div>
+                  </div>
+                  <RiskBadge level={h.riskLevel || 'Low'} />
+                </div>
+                {h.remark && (
+                  <div className="text-sm text-slate-600 bg-slate-50 p-3 rounded-xl italic">
+                    "{h.remark}"
+                  </div>
+                )}
+                {h.assessment && (
+                  <div className="text-xs text-slate-500 border-t border-slate-50 pt-2">
+                    <span className="font-bold text-blue-600 uppercase tracking-tighter mr-2">AI Assessment:</span>
+                    {h.assessment}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </motion.div>
   );
 }
