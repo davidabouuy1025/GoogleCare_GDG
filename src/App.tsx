@@ -385,7 +385,7 @@ export default function App() {
           {activeTab === 'symptoms' && <SymptomAnalyzer key="symptoms" patientId={patient?.id} />}
           {activeTab === 'wound' && <WoundAnalyzer key="wound" patientId={patient?.id} />}
           {activeTab === 'elderly' && <ElderlyCheckIn key="elderly" patient={patient} onUpdateDeadline={(time) => updateProfile({ checkInDeadline: time })} />}
-          {activeTab === 'emergency' && <EmergencyTab key="emergency" />}
+          {activeTab === 'emergency' && <EmergencyTab key="emergency" patient={patient} onProfile={() => setActiveTab('profile')}/>}
           {activeTab === 'profile' && <ProfileTab key="profile" patient={patient} onUpdate={updateProfile} />}
         </AnimatePresence>
       </main>
@@ -438,7 +438,7 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
       collection(db, 'moods'),
       where('patientID', '==', patient.id),
       orderBy('date', 'desc'),
-      limit(5)
+      limit(7)
     );
     const unsubscribe = onSnapshot(q, (snap) => {
       setMoodHistory(snap.docs.map(d => ({
@@ -450,6 +450,7 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
   }, [patient?.id]);
 
   const highRiskAlerts = symptomHistory.filter(h => h.risk === 'High');
+
 
   if (!patient) return <div className="flex items-center justify-center h-64">Loading Dashboard...</div>;
 
@@ -479,11 +480,11 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
         </button>
       </header>
 
-      {/* Mood Summary - Last 5 Days */}
+      {/* Mood Summary - Last 7 Days */}
       <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
         <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
           <Heart size={20} className="text-pink-500" />
-          Mood History (Last 5 Days)
+          Mood History (Last 7 Days)
         </h2>
         <div className="flex justify-between gap-2 overflow-x-auto pb-2">
           {moodHistory.length === 0 ? (
@@ -688,7 +689,8 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-      <h1 className="text-3xl font-bold">Symptom Analysis</h1>
+      <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">🩺 Symptom Analysis</h1>
+      
       
       <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
         <div>
@@ -924,7 +926,7 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-      <h1 className="text-3xl font-bold">Wound Analysis</h1>
+      <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">🩸 Wound Analysis</h1>
       
       <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
         <div 
@@ -1098,7 +1100,7 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-      <h1 className="text-3xl font-bold">Elderly Check-In</h1>
+      <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">👴👵 Elderly Check-In</h1>
       
       <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
         <div className="p-4 bg-blue-50 rounded-2xl flex items-center justify-between">
@@ -1244,9 +1246,10 @@ function getDistance(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function EmergencyTab() {
+function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: () => void}) {
   const [emergencyData, setEmergencyData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const emergencyContact = patient.emergencyContact;
 
   const emergencies = [
     { title: "Seizure", advice: "1. Cushion head. 2. Loosen tight clothing. 3. Turn on side. 4. Do NOT put anything in mouth. 5. Time the seizure." },
@@ -1329,7 +1332,28 @@ function EmergencyTab() {
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-      <h1 className="text-3xl font-bold text-red-600">Emergency Assistance</h1>
+      <div className="flex items-center justify-between gap-4 bg-red-50 border border-red-200 p-4 rounded-2xl shadow-sm">
+
+    <h1 className="text-2xl md:text-3xl font-bold text-red-600 tracking-tight">
+      🚨 Emergency Assistance
+    </h1>
+
+    {emergencyContact ? (
+      <a
+        href={`tel:${emergencyContact}`}
+        className="bg-red-600 text-white px-5 py-3 rounded-xl font-bold text-sm md:text-base shadow-md hover:bg-red-700 active:scale-95 transition flex items-center gap-2"
+      >
+        📞 Call Emergency Contact
+      </a>
+    ) : (
+      <button
+        onClick={onProfile}
+        className="bg-yellow-100 text-yellow-800 border border-yellow-300 px-5 py-3 rounded-xl font-bold text-sm md:text-base shadow-sm hover:bg-yellow-200 active:scale-95 transition flex items-center gap-2"
+      >
+        ⚠️ Set Emergency Contact
+      </button>
+    )}
+  </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {emergencies.map(e => (
@@ -1416,7 +1440,7 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-      <h1 className="text-3xl font-bold">Patient Profile</h1>
+      <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">⚙️ Setting & Profile</h1>
       
       <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm space-y-8">
         <div className="flex items-center gap-6">
