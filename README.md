@@ -51,3 +51,13 @@
 1. **index.html**: The skeleton of the web application. It provides the <div id="root"> where React renders the UI and loads the main.tsx script.
 
 2. **wound_model.py**: A reference Python script. While the live app uses Gemini Vision for wound analysis, this file serves as a blueprint for how a custom TensorFlow/Keras model could be trained for the same purpose.
+
+## How each tab works
+1. Let's take 'Analyze Symptoms' as example
+2. When `SymptomAnalyzer` function in `App.tsk`, it gets user inputs and passed to `AnalyzeSymptom` in `src/services/aiService.ts` for AI analysis
+3. Then, data is returned back and passed to `handleAnalyze()` to check whether patientID exists
+4. If data is valid, it is then passed to `addDoc()` from `firebase/firestore`
+   - Collection: collection(db, 'symptoms')
+   - Payload: An object that contains attributes (ie. patientID, Symptom, topCondition, riskLevel, date)
+5. `isValidSymptom()` and `isAutheticated()` are then executed for security check based on `firestore.rules`
+6. `handleFireStoreError()` is called if any error is raised
