@@ -142,6 +142,9 @@ interface Patient {
   name: string;
   age: number;
   contact: string;
+  phone?: string;
+  bloodType?: string;
+  conditions?: string;
   address: string;
   emergencyContact: string;
   checkInDeadline: string;
@@ -1249,111 +1252,256 @@ function getDistance(lat1: number, lng1: number, lat2: number, lng2: number): nu
 function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: () => void}) {
   const [emergencyData, setEmergencyData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const emergencyContact = patient.emergencyContact;
+  const [showConfirm999, setShowConfirm999] = useState(false);
+  const [showPatientInfo, setShowPatientInfo] = useState(false);
+  const [bloodType, setBloodType] = useState(patient?.bloodType || "");
+  const [conditions, setConditions] = useState(patient?.conditions || "");
+  const [phone, setPhone] = useState(patient?.phone || "");
+  
+  // Cache for nearby facilities
+  const cacheRef = useRef<{
+    lat: number;
+    lng: number;
+    timestamp: number;
+    data: any;
+  } | null>(null);
+
+  const emergencyContact = patient?.emergencyContact;
 
   const emergencies = [
-    { title: "Heart Attack", advice: "1. Call 911 immediately. \n2. Chew aspirin if not allergic. \n3. Sit and stay calm. \n4. Loosen clothing.\n5. Apply CPR if losing pulse" },
+    { title: "Heart Attack", advice: "1. Call 999 immediately. \n2. Chew aspirin if not allergic. \n3. Sit and stay calm. \n4. Loosen clothing.\n5. Apply CPR if losing pulse" },
     { title: "Seizure", advice: "1. Cushion head. \n2. Loosen tight clothing. \n3. Turn on side. \n4. Do NOT put anything in mouth. \n5. Time the seizure." },
     { title: "Asthma Attack", advice: "1. Sit upright. \n2. Take slow, steady breaths. \n3. Use inhaler (blue). \n4. Seek help if no improvement." },
     { title: "Allergic Reaction", advice: "1. Use EpiPen if available. \n2. Call emergency services. \n3. Lay flat with legs raised. \n4. Monitor breathing." },
   ];
 
+  const getGeolocation = (timeout = 10000): Promise<GeolocationPosition> => {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error("Geolocation timeout"));
+      }, timeout);
+
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          clearTimeout(timer);
+          resolve(pos);
+        },
+        (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+        { enableHighAccuracy: true, timeout }
+      );
+    });
+  };
+
+  const getLocation = () => {
+      return new Promise<{lat:number, lng:number}>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            resolve({
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude
+            });
+          },
+          (err) => reject(err)
+        );
+      });
+    };
+  
+    const fetchLocation = async () => {
+      try {
+        const loc = await getLocation();
+        console.log(loc);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+  
+    useEffect(() => {
+      fetchLocation();
+    }, []);
+
   const triggerEmergency = async (situation: string) => {
     setLoading(true);
     setEmergencyData(null);
 
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      const { latitude: lat, longitude: lng } = pos.coords;
+    let lat: number, lng: number;
 
-      try {
-        let severity = "High";
-        const s = situation.toLowerCase();
-        if (s.includes("allergic")) severity = "Medium";
-        else if (s.includes("asthma") || s.includes("seizure") || s.includes("heart")) severity = "Critical";
+    try {
+      const pos = await getGeolocation();
+      lat = pos.coords.latitude;
+      lng = pos.coords.longitude;
+    } catch (err) {
+      console.warn("Geolocation failed, using fallback (KL center):", err);
+      // Fallback to KL center
+      lat = 3.1390;
+      lng = 101.6869;
+    }
 
-        // OpenStreetMap Overpass API — find hospitals and clinics within 10km
-        const overpassQuery = `
-          [out:json][timeout:15];
-          (
-            node["amenity"="hospital"](around:10000,${lat},${lng});
-            way["amenity"="hospital"](around:10000,${lat},${lng});
-            node["amenity"="clinic"](around:10000,${lat},${lng});
-            way["amenity"="clinic"](around:10000,${lat},${lng});
-          );
-          out center;
-        `;
-
-        const response = await fetch("https://overpass-api.de/api/interpreter", {
-          method: "POST",
-          body: overpassQuery,
-        });
-
-        const osmData = await response.json();
-
-        const facilities = osmData.elements
-          .map((el: any) => {
-            const elLat = el.lat ?? el.center?.lat;
-            const elLng = el.lon ?? el.center?.lon;
-            if (!elLat || !elLng) return null;
-            const distance = getDistance(lat, lng, elLat, elLng);
-            const name = el.tags?.name;
-            if (!name) return null;
-            return {
-              name,
-              type: el.tags?.amenity === "hospital" ? "Hospital" : "Clinic",
-              distance,
-              distanceStr: distance < 1 ? `${Math.round(distance * 1000)}m` : `${distance.toFixed(1)}km`,
-              phone: el.tags?.phone || el.tags?.["contact:phone"] || null,
-            };
-          })
-          .filter(Boolean)
-          .sort((a: any, b: any) => a.distance - b.distance)
-          .slice(0, 5);
-
-        setEmergencyData({
-          severity,
-          facilities,
-          instructions: severity === "Critical"
-            ? "Call an ambulance immediately. Stay calm, do not move the patient unless necessary."
-            : "Please make your way to the nearest facility listed below for treatment.",
-        });
-      } catch (err) {
-        console.error("OSM fetch error:", err);
-        setEmergencyData({ severity: "Unknown", facilities: [], instructions: "Could not fetch nearby facilities. Please call emergency services directly." });
-      } finally {
+    // Check cache (within 500m and 10 minutes)
+    const now = Date.now();
+    if (cacheRef.current) {
+      const dist = getDistance(lat, lng, cacheRef.current.lat, cacheRef.current.lng);
+      if (dist < 0.5 && (now - cacheRef.current.timestamp) < 10 * 60 * 1000) {
+        console.log("Using cached emergency data");
+        setEmergencyData(cacheRef.current.data);
         setLoading(false);
+        return;
       }
-    }, (err) => {
-      console.error(err);
+    }
+
+    try {
+      let severity = "High";
+      const s = situation.toLowerCase();
+      if (s.includes("allergic")) severity = "Medium";
+      else if (s.includes("asthma") || s.includes("seizure") || s.includes("heart")) severity = "Critical";
+
+      const overpassQuery = `
+        [out:json][timeout:15];
+        (
+          node["amenity"="hospital"](around:10000,${lat},${lng});
+          way["amenity"="hospital"](around:10000,${lat},${lng});
+          node["amenity"="clinic"](around:10000,${lat},${lng});
+          way["amenity"="clinic"](around:10000,${lat},${lng});
+        );
+        out center;
+      `;
+
+      const endpoints = [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass.osm.ch/api/interpreter"
+      ];
+
+      let osmData = null;
+      let lastError = null;
+
+      for (const endpoint of endpoints) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+          const response = await fetch(endpoint, {
+            method: "POST",
+            body: overpassQuery,
+            signal: controller.signal
+          });
+
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const text = await response.text();
+          try {
+            osmData = JSON.parse(text);
+            break; // Success!
+          } catch (e) {
+            throw new Error("Invalid JSON response from server");
+          }
+        } catch (err: any) {
+          console.warn(`Failed to fetch from ${endpoint}:`, err.message);
+          lastError = err;
+          continue; // Try next endpoint
+        }
+      }
+
+      if (!osmData) {
+        throw lastError || new Error("All medical facility search endpoints failed");
+      }
+
+      const facilities = osmData.elements
+        .map((el: any) => {
+          const elLat = el.lat ?? el.center?.lat;
+          const elLng = el.lon ?? el.center?.lon;
+          if (!elLat || !elLng) return null;
+          const distance = getDistance(lat, lng, elLat, elLng);
+          const name = el.tags?.name;
+          if (!name) return null;
+          return {
+            name,
+            type: el.tags?.amenity === "hospital" ? "Hospital" : "Clinic",
+            distance,
+            distanceStr: distance < 1 ? `${Math.round(distance * 1000)}m` : `${distance.toFixed(1)}km`,
+            phone: el.tags?.phone || el.tags?.["contact:phone"] || null,
+          };
+        })
+        .filter(Boolean)
+        .sort((a: any, b: any) => a.distance - b.distance)
+        .slice(0, 5);
+
+      const newData = {
+        severity,
+        facilities,
+        instructions: severity === "Critical"
+          ? "Call an ambulance immediately. Stay calm, do not move the patient unless necessary."
+          : "Please make your way to the nearest facility listed below for treatment.",
+      };
+
+      setEmergencyData(newData);
+      cacheRef.current = { lat, lng, timestamp: now, data: newData };
+    } catch (err) {
+      console.error("OSM fetch error:", err);
+      setEmergencyData({ 
+        severity: "Unknown", 
+        facilities: [], 
+        instructions: "The medical facility search service is currently busy. Please call emergency services (999) directly for immediate help." 
+      });
+    } finally {
       setLoading(false);
-      alert("Please enable location access to find the nearest medical facility.");
-    });
+    }
+  };
+
+  const handleCall999 = () => {
+    setShowConfirm999(false);
+    // Temporarily disabled calling function as requested
+    // window.location.href = "tel:999";
+    setShowPatientInfo(true);
   };
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-      <div className="flex items-center justify-between gap-4 bg-red-50 border border-red-200 p-4 rounded-2xl shadow-sm">
+      <div className="bg-red-50 border border-red-200 p-6 rounded-3xl shadow-sm space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="text-2xl md:text-3xl font-bold text-red-600 tracking-tight">
+            🚨 Emergency Assistance
+          </h1>
+          <button
+            onClick={() => setShowConfirm999(true)}
+            className="bg-red-600 text-white px-6 py-3 rounded-2xl font-black text-lg shadow-lg hover:bg-red-700 active:scale-95 transition-all flex items-center gap-2 animate-bounce"
+          >
+            🆘 CALL 999
+          </button>
+        </div>
 
-    <h1 className="text-2xl md:text-3xl font-bold text-red-600 tracking-tight">
-      🚨 Emergency Assistance
-    </h1>
-
-    {emergencyContact ? (
-      <a
-        href={`tel:${emergencyContact}`}
-        className="bg-red-600 text-white px-5 py-3 rounded-xl font-bold text-sm md:text-base shadow-md hover:bg-red-700 active:scale-95 transition flex items-center gap-2"
-      >
-        📞 Call Emergency Contact
-      </a>
-    ) : (
-      <button
-        onClick={onProfile}
-        className="bg-yellow-100 text-yellow-800 border border-yellow-300 px-5 py-3 rounded-xl font-bold text-sm md:text-base shadow-sm hover:bg-yellow-200 active:scale-95 transition flex items-center gap-2"
-      >
-        ⚠️ Set Emergency Contact
-      </button>
-    )}
-  </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {emergencyContact ? (
+            <>
+              <a
+                href={`tel:${emergencyContact}`}
+                className="bg-white border-2 border-red-600 text-red-600 px-5 py-3 rounded-xl font-bold text-sm md:text-base shadow-sm hover:bg-red-50 transition flex items-center justify-center gap-2"
+              >
+                📞 Call Contact ({emergencyContact})
+              </a>
+              <a
+                href={`sms:${emergencyContact}?body=EMERGENCY! I need help. My location is being tracked: ${fetchLocation}`}
+                className="bg-white border-2 border-blue-600 text-blue-600 px-5 py-3 rounded-xl font-bold text-sm md:text-base shadow-sm hover:bg-blue-50 transition flex items-center justify-center gap-2"
+              >
+                💬 SMS Emergency Contact
+              </a>
+            </>
+          ) : (
+            <button
+              onClick={onProfile}
+              className="col-span-full bg-yellow-100 text-yellow-800 border border-yellow-300 px-5 py-3 rounded-xl font-bold text-sm md:text-base shadow-sm hover:bg-yellow-200 transition flex items-center justify-center gap-2"
+            >
+              ⚠️ Set Emergency Contact in Profile
+            </button>
+          )}
+        </div>
+      </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {emergencies.map(e => (
@@ -1414,6 +1562,119 @@ function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: (
           <p className="text-sm bg-red-700/50 p-4 rounded-xl italic">{emergencyData.instructions}</p>
         </motion.div>
       )}
+
+      {/* Confirmation Modal for 999 */}
+      <AnimatePresence>
+        {showConfirm999 && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl space-y-6 text-center"
+            >
+              <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto">
+                <AlertTriangle size={40} />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-2xl font-black text-slate-900">Confirm Emergency Call?</h2>
+                <p className="text-slate-600">This will initiate a call to emergency services (999). Only use this for real life-threatening emergencies.</p>
+              </div>
+              <div className="flex flex-col gap-3">
+                <button 
+                  onClick={handleCall999}
+                  className="w-full bg-red-600 text-white py-4 rounded-2xl font-black text-xl shadow-lg hover:bg-red-700 transition-all"
+                >
+                  YES, CALL 999
+                </button>
+                <button 
+                  onClick={() => setShowConfirm999(false)}
+                  className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold hover:bg-slate-200 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Patient Info Form Modal */}
+      <AnimatePresence>
+        {showPatientInfo && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 20, opacity: 0 }}
+              className="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl space-y-6 overflow-y-auto max-h-[90vh]"
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-slate-900">Emergency Patient Info</h2>
+                <button onClick={() => setShowPatientInfo(false)} className="p-2 hover:bg-slate-100 rounded-full">
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="bg-blue-50 p-4 rounded-2xl space-y-2">
+                <p className="text-blue-800 font-bold flex items-center gap-2">
+                  <Info size={18} /> REMINDER
+                </p>
+                <p className="text-blue-700 text-sm">Please remember to bring along your **IC (Identification Card)** and **Medication History** when the ambulance arrives.</p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Patient Phone Number</label>
+                  <input 
+                    type="tel" 
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="e.g. 012-3456789"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Blood Type</label>
+                  <select 
+                    value={bloodType}
+                    onChange={(e) => setBloodType(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+                  >
+                    <option value="">Select Blood Type</option>
+                    <option value="A+">A+</option>
+                    <option value="A-">A-</option>
+                    <option value="B+">B+</option>
+                    <option value="B-">B-</option>
+                    <option value="AB+">AB+</option>
+                    <option value="AB-">AB-</option>
+                    <option value="O+">O+</option>
+                    <option value="O-">O-</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Medical Conditions</label>
+                  <textarea 
+                    value={conditions}
+                    onChange={(e) => setConditions(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none h-24"
+                    placeholder="e.g. Diabetes, Hypertension, Asthma..."
+                  />
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setShowPatientInfo(false)}
+                className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg hover:bg-blue-700 transition-all"
+              >
+                Save & Close
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -1461,8 +1722,19 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <EditableField label="Age" value={patient.age.toString()} onSave={(val) => onUpdate({ age: parseInt(val) })} />
           <EditableField label="Contact Number" value={patient.contact} onSave={(val) => onUpdate({ contact: val })} />
-          <EditableField label="Address" value={patient.address} onSave={(val) => onUpdate({ address: val })} />
+          <EditableField label="Personal Phone" value={patient.phone || "Not set"} onSave={(val) => onUpdate({ phone: val })} />
+          <EditableField label="Blood Type" value={patient.bloodType || "Not set"} onSave={(val) => onUpdate({ bloodType: val })} />
           <EditableField label="Emergency Contact" value={patient.emergencyContact} onSave={(val) => onUpdate({ emergencyContact: val })} />
+          <EditableField label="Address" value={patient.address} onSave={(val) => onUpdate({ address: val })} />
+        </div>
+
+        <div className="pt-6 border-t border-slate-100">
+          <EditableField 
+            label="Medical Conditions" 
+            value={patient.conditions || "None listed"} 
+            onSave={(val) => onUpdate({ conditions: val })} 
+            className="text-sm"
+          />
         </div>
 
         <div className="pt-6 border-t border-slate-100">
