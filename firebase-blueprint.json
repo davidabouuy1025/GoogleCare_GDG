@@ -39,23 +39,25 @@
         "patientID": { "type": "string", "description": "ID of the patient" },
         "date": { "type": "string", "format": "date-time", "description": "Date of recording" },
         "mood": { "type": "string", "description": "Mood status" },
-        "remark": { "type": "string", "description": "Additional notes" }
+        "remark": { "type": "string", "description": "Additional notes" },
+        "assessment": { "type": "string", "description": "AI assessment" },
+        "riskLevel": { "type": "string", "description": "Assessed risk level" }
       },
       "required": ["patientID", "date", "mood"]
-    }
-  },
-  "Wound": {
-    "title": "Wound",
-    "description": "Wound analysis record",
-    "type": "object",
-    "properties": {
-      "patientID": { "type": "string", "description": "ID of the patient" },
-      "type": { "type": "string", "description": "Type of wound" },
-      "analysis": { "type": "string", "description": "Detailed analysis" },
-      "recommendations": { "type": "string", "description": "Care recommendations" },
-      "date": { "type": "string", "format": "date-time", "description": "Date of recording" }
     },
-    "required": ["patientID", "type", "analysis", "date"]
+    "Wound": {
+      "title": "Wound",
+      "description": "Wound analysis record",
+      "type": "object",
+      "properties": {
+        "patientID": { "type": "string", "description": "ID of the patient" },
+        "type": { "type": "string", "description": "Type of wound" },
+        "analysis": { "type": "string", "description": "Detailed analysis" },
+        "recommendations": { "type": "string", "description": "Care recommendations" },
+        "date": { "type": "string", "format": "date-time", "description": "Date of recording" }
+      },
+      "required": ["patientID", "type", "analysis", "date"]
+    }
   },
   "firestore": {
     "/users/{patientID}": {
@@ -69,6 +71,10 @@
     "/moods/{moodId}": {
       "schema": "Mood",
       "description": "Collection of mood records"
+    },
+    "/wounds/{woundId}": {
+      "schema": "Wound",
+      "description": "Collection of wound records"
     }
   }
 }
