@@ -44,6 +44,19 @@
       "required": ["patientID", "date", "mood"]
     }
   },
+  "Wound": {
+    "title": "Wound",
+    "description": "Wound analysis record",
+    "type": "object",
+    "properties": {
+      "patientID": { "type": "string", "description": "ID of the patient" },
+      "type": { "type": "string", "description": "Type of wound" },
+      "analysis": { "type": "string", "description": "Detailed analysis" },
+      "recommendations": { "type": "string", "description": "Care recommendations" },
+      "date": { "type": "string", "format": "date-time", "description": "Date of recording" }
+    },
+    "required": ["patientID", "type", "analysis", "date"]
+  },
   "firestore": {
     "/users/{patientID}": {
       "schema": "User",
