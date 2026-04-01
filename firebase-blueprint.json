@@ -1,0 +1,80 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Patient profile information",
+      "type": "object",
+      "properties": {
+        "patientID": { "type": "string", "description": "Unique identifier for the patient" },
+        "patientName": { "type": "string", "description": "Full name of the patient" },
+        "patientAge": { "type": "integer", "description": "Age of the patient" },
+        "patientAddress": { "type": "string", "description": "Residential address" },
+        "patientContactNo": { "type": "string", "description": "Primary contact number" },
+        "patientEmergencyContact": { "type": "string", "description": "Emergency contact number" },
+        "patientHistory": { "type": "string", "description": "Medical history summary" },
+        "checkInDeadline": { "type": "string", "description": "Daily check-in deadline time (HH:mm)" },
+        "lastCheckIn": { "type": "string", "description": "Timestamp of last check-in" },
+        "deadlineMissed": { "type": "boolean", "description": "Whether the last deadline was missed" }
+      },
+      "required": ["patientID", "patientName"]
+    },
+    "Symptom": {
+      "title": "Symptom",
+      "description": "Recorded symptom analysis",
+      "type": "object",
+      "properties": {
+        "patientID": { "type": "string", "description": "ID of the patient" },
+        "Symptom": { "type": "string", "description": "Description of the symptom" },
+        "riskLevel": { "type": "string", "description": "Assessed risk level (Low, Medium, High)" },
+        "confidenceScore": { "type": "number", "description": "Confidence score of the analysis" },
+        "date": { "type": "string", "format": "date-time", "description": "Date of recording" }
+      },
+      "required": ["patientID", "Symptom"]
+    },
+    "Mood": {
+      "title": "Mood",
+      "description": "Daily mood check-in",
+      "type": "object",
+      "properties": {
+        "patientID": { "type": "string", "description": "ID of the patient" },
+        "date": { "type": "string", "format": "date-time", "description": "Date of recording" },
+        "mood": { "type": "string", "description": "Mood status" },
+        "remark": { "type": "string", "description": "Additional notes" },
+        "assessment": { "type": "string", "description": "AI assessment" },
+        "riskLevel": { "type": "string", "description": "Assessed risk level" }
+      },
+      "required": ["patientID", "date", "mood"]
+    },
+    "Wound": {
+      "title": "Wound",
+      "description": "Wound analysis record",
+      "type": "object",
+      "properties": {
+        "patientID": { "type": "string", "description": "ID of the patient" },
+        "type": { "type": "string", "description": "Type of wound" },
+        "analysis": { "type": "string", "description": "Detailed analysis" },
+        "recommendations": { "type": "string", "description": "Care recommendations" },
+        "date": { "type": "string", "format": "date-time", "description": "Date of recording" }
+      },
+      "required": ["patientID", "type", "analysis", "date"]
+    }
+  },
+  "firestore": {
+    "/users/{patientID}": {
+      "schema": "User",
+      "description": "Collection of patient profiles"
+    },
+    "/symptoms/{symptomId}": {
+      "schema": "Symptom",
+      "description": "Collection of symptom records"
+    },
+    "/moods/{moodId}": {
+      "schema": "Mood",
+      "description": "Collection of mood records"
+    },
+    "/wounds/{woundId}": {
+      "schema": "Wound",
+      "description": "Collection of wound records"
+    }
+  }
+}

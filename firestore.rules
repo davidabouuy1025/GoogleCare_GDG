@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.email == "myleejm23@gmail.com" && request.auth.token.email_verified == true);
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['patientID', 'patientName']) &&
+             data.patientID is string &&
+             data.patientName is string && data.patientName.size() < 100;
+    }
+
+    function isValidSymptom(data) {
+      return data.keys().hasAll(['patientID', 'Symptom']) &&
+             data.patientID is string &&
+             data.Symptom is string && data.Symptom.size() < 10000;
+    }
+
+    function isValidMood(data) {
+      return data.keys().hasAll(['patientID', 'date', 'mood']) &&
+             data.patientID is string &&
+             data.date is string &&
+             data.mood is string && data.mood.size() < 100;
+    }
+
+    function isValidWound(data) {
+      return data.keys().hasAll(['patientID', 'type', 'analysis', 'date']) &&
+             data.patientID is string &&
+             data.type is string &&
+             data.analysis is string && data.analysis.size() < 5000 &&
+             data.date is string;
+    }
+
+    match /users/{patientID} {
+      allow read: if isAuthenticated() && (isOwner(patientID) || isAdmin());
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(patientID) || isAdmin());
+      allow update: if isAuthenticated() && (isOwner(patientID) || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /symptoms/{symptomId} {
+      allow read: if isAuthenticated() && (resource.data.patientID == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidSymptom(request.resource.data) && (request.resource.data.patientID == request.auth.uid || isAdmin());
+      allow update: if isAuthenticated() && isValidSymptom(request.resource.data) && (resource.data.patientID == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /moods/{moodId} {
+      allow read: if isAuthenticated() && (resource.data.patientID == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidMood(request.resource.data) && (request.resource.data.patientID == request.auth.uid || isAdmin());
+      allow update: if isAuthenticated() && isValidMood(request.resource.data) && (request.resource.data.patientID == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /wounds/{woundId} {
+      allow read: if isAuthenticated() && (resource.data.patientID == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidWound(request.resource.data) && (request.resource.data.patientID == request.auth.uid || isAdmin());
+      allow update: if isAuthenticated() && isValidWound(request.resource.data) && (request.resource.data.patientID == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+  }
+}
