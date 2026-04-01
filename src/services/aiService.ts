@@ -64,7 +64,7 @@ export const analyzeSymptoms = async (symptoms: string, conversationContext: str
   } catch (error: any) {
     if (error.message?.includes("429") || error.message?.toLowerCase().includes("quota")) {
       return {
-        topCondition: "Service Unavailable",
+        topCondition: symptoms,
         possibleConditions: [],
         advice: QUOTA_ERROR_MESSAGE,
         risk_level: "Low",
