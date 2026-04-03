@@ -83,6 +83,11 @@ function getMalaysiaDateKey() {
   return getMalaysiaTime().toISOString().split('T')[0];
 }
 
+function capitalizeFirst(str: string): string{
+  if (!str) return "";
+  return str.charAt(0).toUpperCase() + str.slice(1);
+};
+
 // --- Error Handling ---
 enum OperationType {
   CREATE = 'create',
@@ -142,11 +147,12 @@ interface Patient {
   id: string;
   name: string;
   age: number;
+  address: string;
   contact: string;
   phone?: string;
-  bloodType?: string;
+  bloodType: string;
   conditions: string;
-  address: string;
+  allergy: string;
   emergencyContact: string;
   checkInDeadline: string;
   lastCheckIn: string | null;
@@ -181,7 +187,7 @@ export default function App() {
         await getDocFromServer(doc(db, 'test', 'connection'));
       } catch (error) {
         if(error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration. ");
+          console.error("testConnection(): Please check your Firebase configuration. ");
         }
       }
     }
@@ -207,6 +213,8 @@ export default function App() {
           address: data.patientAddress || '',
           emergencyContact: data.patientEmergencyContact || '',
           conditions: data.patientCondition || '',
+          allergy: data.patientAllergy || '',
+          bloodType: data.patientBloodType,
           checkInDeadline: data.checkInDeadline || '09:00',
           lastCheckIn: data.lastCheckIn || null,
           deadlineMissed: data.deadlineMissed || false,
@@ -222,6 +230,8 @@ export default function App() {
           patientContactNo: '',
           patientEmergencyContact: '',
           patientCondition: '',
+          patientAllergy: '',
+          patientBloodType: '',
           checkInDeadline: '09:00',
           lastCheckIn: null,
           deadlineMissed: false,
@@ -235,6 +245,8 @@ export default function App() {
           address: initialPatient.patientAddress,
           emergencyContact: initialPatient.patientEmergencyContact,
           conditions: initialPatient.patientCondition,
+          allergy: initialPatient.patientAllergy,
+          bloodType: initialPatient.patientBloodType,
           checkInDeadline: initialPatient.checkInDeadline,
           lastCheckIn: initialPatient.lastCheckIn,
           deadlineMissed: initialPatient.deadlineMissed,
@@ -254,7 +266,7 @@ export default function App() {
     try {
       await signInWithPopup(auth, provider);
     } catch (err) {
-      console.error("Login failed", err);
+      console.error("login: Login failed", err);
     }
   };
 
@@ -263,7 +275,7 @@ export default function App() {
       await signInAnonymously(auth);
       setShowGuestModal(false);
     } catch (err) {
-      console.error("Anonymous login failed", err);
+      console.error("login: Anonymous login failed", err);
     }
   };
 
@@ -279,6 +291,8 @@ export default function App() {
     if (updates.address !== undefined) firestoreUpdates.patientAddress = updates.address;
     if (updates.emergencyContact !== undefined) firestoreUpdates.patientEmergencyContact = updates.emergencyContact;
     if(updates.conditions !== undefined) firestoreUpdates.patientCondition = updates.conditions;
+    if (updates.allergy !== undefined) firestoreUpdates.patientAllergy = updates.allergy;
+    if (updates.bloodType !== undefined) firestoreUpdates.patientBloodType = updates.bloodType;
     if (updates.checkInDeadline !== undefined) firestoreUpdates.checkInDeadline = updates.checkInDeadline;
 
     try {
@@ -372,12 +386,21 @@ export default function App() {
           <span className="text-xl font-bold tracking-tight">GoogleCare</span>
         </div>
 
+        <div className="hidden md:flex items-center gap-2 mb-8 px-2">
+          <AlertTriangle size={25}/>
+          <span>Check in immediately</span>
+        </div>
+
+        <hr></hr>
+        <NavItem icon={<AlertCircle size={20} />} label="Emergency" active={activeTab === 'emergency'} onClick={() => setActiveTab('emergency')} />
+        <hr></hr>
         <NavItem icon={<Activity size={20} />} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
         <NavItem icon={<Stethoscope size={20} />} label="Symptoms" active={activeTab === 'symptoms'} onClick={() => setActiveTab('symptoms')} />
         <NavItem icon={<Camera size={20} />} label="Wound" active={activeTab === 'wound'} onClick={() => setActiveTab('wound')} />
         <NavItem icon={<User size={20} />} label="Elderly" active={activeTab === 'elderly'} onClick={() => setActiveTab('elderly')} />
-        <NavItem icon={<AlertCircle size={20} />} label="Emergency" active={activeTab === 'emergency'} onClick={() => setActiveTab('emergency')} />
+        <NavItem icon={<Stethoscope size={20} />} label="Forum" active={activeTab === 'forum'} onClick={() => setActiveTab('forum')} />
         <NavItem icon={<User size={20} />} label="Profile" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
+        <hr></hr>
         
         <div className="hidden md:block mt-auto pt-6 border-t border-slate-100">
           <button 
@@ -1646,10 +1669,10 @@ function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: (
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1">Patient Phone Number</label>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Emergency Contact Number</label>
                   <input 
                     type="tel" 
-                    value={phone}
+                    value={patient.emergencyContact}
                     onChange={(e) => setPhone(e.target.value)}
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
                     placeholder="e.g. 012-3456789"
@@ -1658,8 +1681,7 @@ function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: (
 
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">Blood Type</label>
-                  <select 
-                    value={bloodType}
+                  <select
                     onChange={(e) => setBloodType(e.target.value)}
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
                   >
@@ -1678,7 +1700,7 @@ function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: (
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">Medical Conditions</label>
                   <textarea 
-                    value={conditions}
+                    value={patient.conditions}
                     onChange={(e) => setConditions(e.target.value)}
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none h-24"
                     placeholder="e.g. Diabetes, Hypertension, Asthma..."
@@ -1701,9 +1723,22 @@ function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: (
 }
 
 function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: (updates: Partial<Patient>) => void }) {
-  if (!patient) return null;
-
+  
   const [aiStatus, setAiStatus] = useState<'online' | 'offline' | 'checking' | null>(null);
+  const [bloodType, setBloodType] = useState(patient?.bloodType || "");
+  const [forceCheckIn, setforceCheckIn] = useState<boolean>(patient?.forceCheckIn || false);
+  const [isEnabled, setIsEnabled] = useState<boolean>(patient?.forceCheckIn || false);
+  
+  
+  useEffect(() => {
+    if (patient) {
+      setBloodType(patient.bloodType || "");
+      setforceCheckIn(patient.forceCheckIn || false);
+      setIsEnabled(patient.forceCheckIn || false);
+    }
+  }, [patient?.id, patient?.bloodType, patient?.forceCheckIn]);
+
+  if (!patient) return null;
 
   const checkAiStatus = async () => {
     setAiStatus('checking');
@@ -1719,9 +1754,6 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
       }
     }
   };
-
-  // For toggle 
-  const [isEnabled, setIsEnabled] = useState(false);
 
   const handleToggle = async () => {
     const next = !isEnabled;   // compute new state
@@ -1749,6 +1781,18 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
     );
   };
 
+  const updateBloodType = async (newBloodType) => {
+    if (!patient) return;
+
+    const patientData = doc(db, 'users', patient.id);
+
+    await updateDoc(patientData, {
+      bloodType: newBloodType
+    }).catch(err =>
+      handleFirestoreError(err, OperationType.UPDATE, `users/${patient.id}`)
+    );
+  };
+
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
       <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">⚙️ Profile & Profile</h1>
@@ -1769,6 +1813,7 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
           </div>
         </div>
 
+        <h3 className="font-bold mb-4">Personal Details</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <EditableField 
             label="Age" 
@@ -1788,13 +1833,51 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
             onSave={(val) => onUpdate({ address: val })} />
         </div>
 
-        <div className="pt-6 border-t border-slate-100">
+        <h3 className="font-bold mb-4">Medical Details</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="pt-6 border-t border-slate-100">
           <EditableField 
             label="Medical Conditions" 
             value={patient.conditions} 
             onSave={(val) => onUpdate({ conditions: val })} 
             className="text-sm"
           />
+          </div>
+          
+          <div className="pt-6 border-t border-slate-100">
+            <EditableField 
+              label="Allergies" 
+              value={patient.allergy} 
+              onSave={(val) => onUpdate({ allergy: val })} 
+              className="text-sm"
+            />
+          </div>
+
+          <div className="group relative space-y-1 p-2 rounded-xl hover:bg-slate-50 transition-colors">
+            <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
+              Blood Type
+            </label>
+
+            <select 
+              value={patient.bloodType}
+              onChange={(e) => {
+                const val = e.target.value;
+                onUpdate({ bloodType: val });  // update parent state immediately
+                updateBloodType(val);          // persist to Firestore
+              }}
+              className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="">Select Blood Type</option>
+              <option value="A+">A+</option>
+              <option value="A-">A-</option>
+              <option value="B+">B+</option>
+              <option value="B-">B-</option>
+              <option value="AB+">AB+</option>
+              <option value="AB-">AB-</option>
+              <option value="O+">O+</option>
+              <option value="O-">O-</option>
+            </select>
+          </div>
         </div>
 
         <div className="pt-6 border-t border-slate-100">
@@ -1829,6 +1912,7 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
                 <p className="text-xs text-slate-400">Set daily check-in to compulsory</p> 
               </div> 
               <div
+                value={forceCheckIn}
                 onClick={handleToggle}
                 className={`w-12 h-6 rounded-full relative cursor-pointer transition ${
                   isEnabled ? "bg-blue-600" : "bg-gray-300"
