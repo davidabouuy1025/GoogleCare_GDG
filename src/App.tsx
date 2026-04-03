@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Activity, 
@@ -25,12 +20,16 @@ import {
   Save,
   X,
   Clock,
-  LogIn
+  LogIn,
+  MessageSquare
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+
+// Forum Import
+import ForumTab from './ForumTab';
 
 // Firebase imports
 import { 
@@ -46,7 +45,8 @@ import {
   orderBy, 
   limit,
   Timestamp,
-  getDocFromServer
+  getDocFromServer,
+  Firestore
 } from 'firebase/firestore';
 import { 
   signInWithPopup, 
@@ -86,6 +86,11 @@ function getMalaysiaISOString() {
 function getMalaysiaDateKey() {
   return getMalaysiaTime().toISOString().split('T')[0];
 }
+
+function capitalizeFirst(str: string): string{
+  if (!str) return "";
+  return str.charAt(0).toUpperCase() + str.slice(1);
+};
 
 // --- Error Handling ---
 enum OperationType {
@@ -140,18 +145,23 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 }
 
 // --- Types ---
-type Tab = 'dashboard' | 'symptoms' | 'wound' | 'elderly' | 'emergency' | 'profile';
+type Tab = 'emergency' | 'dashboard' | 'symptoms' | 'wound' | 'elderly' | 'forum' | 'profile';
 
 interface Patient {
   id: string;
   name: string;
   age: number;
-  contact: string;
   address: string;
+  contact: string;
+  phone?: string;
+  bloodType: string;
+  conditions: string;
+  allergy: string;
   emergencyContact: string;
   checkInDeadline: string;
   lastCheckIn: string | null;
   deadlineMissed: boolean;
+  forceCheckIn: boolean;
 }
 
 // --- Components ---
@@ -181,7 +191,7 @@ export default function App() {
         await getDocFromServer(doc(db, 'test', 'connection'));
       } catch (error) {
         if(error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration. ");
+          console.error("testConnection(): Please check your Firebase configuration. ");
         }
       }
     }
@@ -206,9 +216,13 @@ export default function App() {
           contact: data.patientContactNo || '',
           address: data.patientAddress || '',
           emergencyContact: data.patientEmergencyContact || '',
+          conditions: data.patientCondition || '',
+          allergy: data.patientAllergy || '',
+          bloodType: data.patientBloodType,
           checkInDeadline: data.checkInDeadline || '09:00',
           lastCheckIn: data.lastCheckIn || null,
           deadlineMissed: data.deadlineMissed || false,
+          forceCheckIn: data.forceCheckIn || true
         });
       } else {
         // Initialize patient profile if it doesn't exist
@@ -219,9 +233,13 @@ export default function App() {
           patientAddress: '',
           patientContactNo: '',
           patientEmergencyContact: '',
+          patientCondition: '',
+          patientAllergy: '',
+          patientBloodType: '',
           checkInDeadline: '09:00',
-          lastCheckIn: null,
-          deadlineMissed: false
+          lastCheckIn: getMalaysiaISOString,
+          deadlineMissed: false,
+          forceCheckIn: true
         };
         setPatient({
           id: user.uid,
@@ -230,9 +248,13 @@ export default function App() {
           contact: initialPatient.patientContactNo,
           address: initialPatient.patientAddress,
           emergencyContact: initialPatient.patientEmergencyContact,
+          conditions: initialPatient.patientCondition,
+          allergy: initialPatient.patientAllergy,
+          bloodType: initialPatient.patientBloodType,
           checkInDeadline: initialPatient.checkInDeadline,
           lastCheckIn: initialPatient.lastCheckIn,
           deadlineMissed: initialPatient.deadlineMissed,
+          forceCheckIn: initialPatient.forceCheckIn
         });
         setDoc(patientRef, initialPatient).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));
       }
@@ -248,7 +270,7 @@ export default function App() {
     try {
       await signInWithPopup(auth, provider);
     } catch (err) {
-      console.error("Login failed", err);
+      console.error("login: Login failed", err);
     }
   };
 
@@ -257,7 +279,7 @@ export default function App() {
       await signInAnonymously(auth);
       setShowGuestModal(false);
     } catch (err) {
-      console.error("Anonymous login failed", err);
+      console.error("login: Anonymous login failed", err);
     }
   };
 
@@ -272,6 +294,9 @@ export default function App() {
     if (updates.contact !== undefined) firestoreUpdates.patientContactNo = updates.contact;
     if (updates.address !== undefined) firestoreUpdates.patientAddress = updates.address;
     if (updates.emergencyContact !== undefined) firestoreUpdates.patientEmergencyContact = updates.emergencyContact;
+    if(updates.conditions !== undefined) firestoreUpdates.patientCondition = updates.conditions;
+    if (updates.allergy !== undefined) firestoreUpdates.patientAllergy = updates.allergy;
+    if (updates.bloodType !== undefined) firestoreUpdates.patientBloodType = updates.bloodType;
     if (updates.checkInDeadline !== undefined) firestoreUpdates.checkInDeadline = updates.checkInDeadline;
 
     try {
@@ -354,6 +379,17 @@ export default function App() {
     );
   }
 
+  const isPastDeadline = () => {
+    if (!patient?.checkInDeadline) return false;
+    const now = new Date();
+    const [hours, minutes] = patient.checkInDeadline.split(':').map(Number);
+    const deadline = new Date();
+    deadline.setHours(hours, minutes, 0, 0);
+    return now > deadline;
+  };
+
+  const showCheckInAlert = patient?.forceCheckIn && isPastDeadline();
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-20 md:pb-0 md:pl-64">
       {/* Sidebar / Bottom Nav */}
@@ -365,12 +401,28 @@ export default function App() {
           <span className="text-xl font-bold tracking-tight">GoogleCare</span>
         </div>
 
+        {showCheckInAlert && (
+          <div className="hidden md:flex items-center gap-3 mb-4 px-3 py-3 bg-red-50 border border-red-200 rounded-2xl animate-pulse">
+            <div className="w-8 h-8 bg-red-100 rounded-xl flex items-center justify-center shrink-0">
+              <AlertTriangle size={16} className="text-red-500" />
+            </div>
+            <div>
+              <p className="text-red-600 font-bold text-xs">Check-In Overdue</p>
+              <p className="text-red-400 text-[10px]">Please check in immediately</p>
+            </div>
+          </div>
+        )}
+
+        <hr></hr>
+        <NavItem icon={<AlertCircle size={20} />} label="Emergency" active={activeTab === 'emergency'} onClick={() => setActiveTab('emergency')} />
+        <hr></hr>
         <NavItem icon={<Activity size={20} />} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
         <NavItem icon={<Stethoscope size={20} />} label="Symptoms" active={activeTab === 'symptoms'} onClick={() => setActiveTab('symptoms')} />
         <NavItem icon={<Camera size={20} />} label="Wound" active={activeTab === 'wound'} onClick={() => setActiveTab('wound')} />
         <NavItem icon={<User size={20} />} label="Elderly" active={activeTab === 'elderly'} onClick={() => setActiveTab('elderly')} />
-        <NavItem icon={<AlertCircle size={20} />} label="Emergency" active={activeTab === 'emergency'} onClick={() => setActiveTab('emergency')} />
+        <NavItem icon={<MessageSquare size={20} />} label="Forum" active={activeTab === 'forum'} onClick={() => setActiveTab('forum')} />
         <NavItem icon={<User size={20} />} label="Profile" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
+        <hr></hr>
         
         <div className="hidden md:block mt-auto pt-6 border-t border-slate-100">
           <button 
@@ -390,7 +442,8 @@ export default function App() {
           {activeTab === 'symptoms' && <SymptomAnalyzer key="symptoms" patientId={patient?.id} />}
           {activeTab === 'wound' && <WoundAnalyzer key="wound" patientId={patient?.id} />}
           {activeTab === 'elderly' && <ElderlyCheckIn key="elderly" patient={patient} onUpdateDeadline={(time) => updateProfile({ checkInDeadline: time })} />}
-          {activeTab === 'emergency' && <EmergencyTab key="emergency" />}
+          {activeTab === 'forum' && <ForumTab key="forum" userName={patient?.name || 'Patient'} />}
+          {activeTab === 'emergency' && <EmergencyTab key="emergency" patient={patient} onProfile={() => setActiveTab('profile')}/>}
           {activeTab === 'profile' && <ProfileTab key="profile" patient={patient} onUpdate={updateProfile} />}
         </AnimatePresence>
       </main>
@@ -421,12 +474,14 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
 
   useEffect(() => {
     if (!patient?.id) return;
+
     const q = query(
       collection(db, 'symptoms'),
       where('patientID', '==', patient.id),
       orderBy('date', 'desc'),
       limit(5)
     );
+
     const unsubscribe = onSnapshot(q, (snap) => {
       setSymptomHistory(snap.docs.map(d => ({
         condition: d.data().topCondition || d.data().Symptom,
@@ -443,7 +498,7 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
       collection(db, 'moods'),
       where('patientID', '==', patient.id),
       orderBy('date', 'desc'),
-      limit(5)
+      limit(7)
     );
     const unsubscribe = onSnapshot(q, (snap) => {
       setMoodHistory(snap.docs.map(d => ({
@@ -455,6 +510,7 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
   }, [patient?.id]);
 
   const highRiskAlerts = symptomHistory.filter(h => h.risk === 'High');
+
 
   if (!patient) return <div className="flex items-center justify-center h-64">Loading Dashboard...</div>;
 
@@ -484,11 +540,11 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
         </button>
       </header>
 
-      {/* Mood Summary - Last 5 Days */}
+      {/* Mood Summary - Last 7 Days */}
       <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
         <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
           <Heart size={20} className="text-pink-500" />
-          Mood History (Last 5 Days)
+          Mood History (Last 7 Days)
         </h2>
         <div className="flex justify-between gap-2 overflow-x-auto pb-2">
           {moodHistory.length === 0 ? (
@@ -553,7 +609,6 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
 }
 
 function SymptomAnalyzer({ patientId }: { patientId?: string }) {
-  console.log(patientId);
   const [input, setInput] = useState('');
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
   const [result, setResult] = useState<any>(null);
@@ -635,6 +690,7 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
     } finally {
       setLoading(false);
     }
+    console.log("SymptomAnalyzer: Data is successfully saved to Firebase.")
   };
 
   const handleFollowUp = async () => {
@@ -689,11 +745,12 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
     window.speechSynthesis.speak(utterance);
   };
 
-  const disableButton = true;
+  const disableButton = false;
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-      <h1 className="text-3xl font-bold">Symptom Analysis</h1>
+      <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">🩺 Symptom Analysis</h1>
+      
       
       <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
         <div>
@@ -924,11 +981,12 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
       console.error(err);
       setLoading(false);
     }
+    console.log("WoundAnalyzer: Data is successfully saved to Firebase.")
   };
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-      <h1 className="text-3xl font-bold">Wound Analysis</h1>
+      <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">🩸 Wound Analysis</h1>
       
       <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
         <div 
@@ -1088,17 +1146,21 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
       riskLevel: data.risk_level || 'Low'
     }).catch(err => handleFirestoreError(err, OperationType.WRITE, `moods/${docId}`));
 
+    console.log("Check-In: Data(Mood) is successfully saved into Firebase at ", now)
+
     // Update patient profile
     const patientRef = doc(db, 'users', patient.id);
     await updateDoc(patientRef, {
       lastCheckIn: now,
       deadlineMissed: false
     }).catch(err => handleFirestoreError(err, OperationType.UPDATE, `users/${patient.id}`));
+
+    console.log("Check-In: Data(lastCheckIn, deadlineMissed) is successfully saved to Firebase.")
   };
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-      <h1 className="text-3xl font-bold">Elderly Check-In</h1>
+      <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">👴👵 Elderly Check-In</h1>
       
       <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
         <div className="p-4 bg-blue-50 rounded-2xl flex items-center justify-between">
@@ -1244,92 +1306,269 @@ function getDistance(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function EmergencyTab() {
+function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: () => void}) {
   const [emergencyData, setEmergencyData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [showConfirm999, setShowConfirm999] = useState(false);
+  const [showPatientInfo, setShowPatientInfo] = useState(false);
+  const [bloodType, setBloodType] = useState(patient?.bloodType || "");
+  const [conditions, setConditions] = useState(patient?.conditions || "");
+  const [phone, setPhone] = useState(patient?.phone || "");
+  
+  // Cache for nearby facilities
+  const cacheRef = useRef<{
+    lat: number;
+    lng: number;
+    timestamp: number;
+    data: any;
+  } | null>(null);
 
+  // Get emergency contact of user
+  const emergencyContact = patient?.emergencyContact;
+
+  // Common emergencies
   const emergencies = [
-    { title: "Seizure", advice: "1. Cushion head. 2. Loosen tight clothing. 3. Turn on side. 4. Do NOT put anything in mouth. 5. Time the seizure." },
-    { title: "Asthma Attack", advice: "1. Sit upright. 2. Take slow, steady breaths. 3. Use inhaler (blue). 4. Seek help if no improvement." },
-    { title: "Allergic Reaction", advice: "1. Use EpiPen if available. 2. Call emergency services. 3. Lay flat with legs raised. 4. Monitor breathing." },
-    { title: "Heart Attack", advice: "1. Call 911 immediately. 2. Chew aspirin if not allergic. 3. Sit and stay calm. 4. Loosen clothing." }
+    { title: "Heart Attack", advice: "1. Call 999 immediately. \n2. Chew aspirin if not allergic. \n3. Sit and stay calm. \n4. Loosen clothing.\n5. Apply CPR if losing pulse" },
+    { title: "Seizure", advice: "1. Cushion head. \n2. Loosen tight clothing. \n3. Turn on side. \n4. Do NOT put anything in mouth. \n5. Time the seizure." },
+    { title: "Asthma Attack", advice: "1. Sit upright. \n2. Take slow, steady breaths. \n3. Use inhaler (blue). \n4. Seek help if no improvement." },
+    { title: "Allergic Reaction", advice: "1. Use EpiPen if available. \n2. Call emergency services. \n3. Lay flat with legs raised. \n4. Monitor breathing." },
   ];
 
+  // Get current geolocation with timeout feature
+  const getGeolocation = (timeout = 10000): Promise<GeolocationPosition> => {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error("Geolocation timeout"));
+      }, timeout);
+
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          clearTimeout(timer);
+          resolve(pos);
+        },
+        (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+        { enableHighAccuracy: true, timeout }
+      );
+    });
+  };
+
+  // Get current location for SMS purpose
+  const getLocation = () => {
+      return new Promise<{lat:number, lng:number}>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            resolve({
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude
+            });
+          },
+          (err) => reject(err)
+        );
+      });
+    };
+  
+    const fetchLocation = async () => {
+      try {
+        const loc = await getLocation();
+        console.log(loc);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+  
+    useEffect(() => {
+      fetchLocation();
+    }, []);
+
+  // When user clicks 'Request Help for XXX' button
   const triggerEmergency = async (situation: string) => {
     setLoading(true);
     setEmergencyData(null);
 
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      const { latitude: lat, longitude: lng } = pos.coords;
+    let lat: number, lng: number;
 
-      try {
-        let severity = "High";
-        const s = situation.toLowerCase();
-        if (s.includes("allergic")) severity = "Medium";
-        else if (s.includes("asthma") || s.includes("seizure") || s.includes("heart")) severity = "Critical";
+    try {
+      const pos = await getGeolocation();
+      lat = pos.coords.latitude;
+      lng = pos.coords.longitude;
+    } catch (err) {
+      console.warn("Geolocation failed, using fallback (KL center):", err);
+      // Fallback to KL center
+      lat = 3.1390;
+      lng = 101.6869;
+    }
 
-        // OpenStreetMap Overpass API — find hospitals and clinics within 10km
-        const overpassQuery = `
-          [out:json][timeout:15];
-          (
-            node["amenity"="hospital"](around:10000,${lat},${lng});
-            way["amenity"="hospital"](around:10000,${lat},${lng});
-            node["amenity"="clinic"](around:10000,${lat},${lng});
-            way["amenity"="clinic"](around:10000,${lat},${lng});
-          );
-          out center;
-        `;
-
-        const response = await fetch("https://overpass-api.de/api/interpreter", {
-          method: "POST",
-          body: overpassQuery,
-        });
-
-        const osmData = await response.json();
-
-        const facilities = osmData.elements
-          .map((el: any) => {
-            const elLat = el.lat ?? el.center?.lat;
-            const elLng = el.lon ?? el.center?.lon;
-            if (!elLat || !elLng) return null;
-            const distance = getDistance(lat, lng, elLat, elLng);
-            const name = el.tags?.name;
-            if (!name) return null;
-            return {
-              name,
-              type: el.tags?.amenity === "hospital" ? "Hospital" : "Clinic",
-              distance,
-              distanceStr: distance < 1 ? `${Math.round(distance * 1000)}m` : `${distance.toFixed(1)}km`,
-              phone: el.tags?.phone || el.tags?.["contact:phone"] || null,
-            };
-          })
-          .filter(Boolean)
-          .sort((a: any, b: any) => a.distance - b.distance)
-          .slice(0, 5);
-
-        setEmergencyData({
-          severity,
-          facilities,
-          instructions: severity === "Critical"
-            ? "Call an ambulance immediately. Stay calm, do not move the patient unless necessary."
-            : "Please make your way to the nearest facility listed below for treatment.",
-        });
-      } catch (err) {
-        console.error("OSM fetch error:", err);
-        setEmergencyData({ severity: "Unknown", facilities: [], instructions: "Could not fetch nearby facilities. Please call emergency services directly." });
-      } finally {
+    // Check cache (within 500m and 10 minutes)
+    const now = Date.now();
+    if (cacheRef.current) {
+      const dist = getDistance(lat, lng, cacheRef.current.lat, cacheRef.current.lng);
+      if (dist < 0.5 && (now - cacheRef.current.timestamp) < 10 * 60 * 1000) {
+        console.log("EmergencyTab: Using cached emergency data");
+        setEmergencyData(cacheRef.current.data);
         setLoading(false);
+        return;
       }
-    }, (err) => {
-      console.error(err);
+    }
+
+    try {
+      let severity = "High";
+      const s = situation.toLowerCase();
+      if (s.includes("allergic")) 
+        severity = "Medium";
+      else if (s.includes("asthma") || s.includes("seizure") || s.includes("heart")) 
+        severity = "Critical";
+
+      const overpassQuery = `
+        [out:json][timeout:15];
+        (
+          node["amenity"="hospital"](around:10000,${lat},${lng});
+          way["amenity"="hospital"](around:10000,${lat},${lng});
+          node["amenity"="clinic"](around:10000,${lat},${lng});
+          way["amenity"="clinic"](around:10000,${lat},${lng});
+        );
+        out center;
+      `;
+
+      const endpoints = [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass.osm.ch/api/interpreter"
+      ];
+
+      let osmData = null;
+      let lastError = null;
+
+      // Try each endpoints
+      for (const endpoint of endpoints) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+          const response = await fetch(endpoint, {
+            method: "POST",
+            body: overpassQuery,
+            signal: controller.signal
+          });
+
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const text = await response.text();
+          try {
+            osmData = JSON.parse(text);
+            break; // Success!
+          } catch (e) {
+            throw new Error("Invalid JSON response from server");
+          }
+        } catch (err: any) {
+          console.warn(`Failed to fetch from ${endpoint}:`, err.message);
+          lastError = err;
+          continue; // Try next endpoint
+        }
+      }
+
+      if (!osmData) {
+        throw lastError || new Error("All medical facility search endpoints failed");
+      }
+
+      const facilities = osmData.elements
+        .map((el: any) => {
+          const elLat = el.lat ?? el.center?.lat;
+          const elLng = el.lon ?? el.center?.lon;
+          if (!elLat || !elLng) return null;
+          const distance = getDistance(lat, lng, elLat, elLng);
+          const name = el.tags?.name;
+          if (!name) return null;
+          return {
+            name,
+            type: el.tags?.amenity === "hospital" ? "Hospital" : "Clinic",
+            distance,
+            distanceStr: distance < 1 ? `${Math.round(distance * 1000)}m` : `${distance.toFixed(1)}km`,
+            phone: el.tags?.phone || el.tags?.["contact:phone"] || null,
+          };
+        })
+        .filter(Boolean)
+        .sort((a: any, b: any) => a.distance - b.distance)
+        .slice(0, 5);
+
+      const newData = {
+        severity,
+        facilities,
+        instructions: severity === "Critical"
+          ? "Call an ambulance immediately. Stay calm, do not move the patient unless necessary."
+          : "Please make your way to the nearest facility listed below for treatment.",
+      };
+
+      setEmergencyData(newData);
+      cacheRef.current = { lat, lng, timestamp: now, data: newData };
+    } catch (err) {
+      console.error("OSM fetch error:", err);
+      setEmergencyData({ 
+        severity: "Unknown", 
+        facilities: [], 
+        instructions: "The medical facility search service is currently busy. Please call emergency services (999) directly for immediate help." 
+      });
+    } finally {
       setLoading(false);
-      alert("Please enable location access to find the nearest medical facility.");
-    });
+    }
   };
 
+  // Call 999
+  const handleCall999 = () => {
+    setShowConfirm999(false);
+    // Temporarily disabled calling function as requested
+    // window.location.href = "tel:999";
+    setShowPatientInfo(true);
+  };
+
+  // HTML
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-      <h1 className="text-3xl font-bold text-red-600">Emergency Assistance</h1>
+      <div className="bg-red-50 border border-red-200 p-6 rounded-3xl shadow-sm space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="text-2xl md:text-3xl font-bold text-red-600 tracking-tight">
+            🚨 Emergency Assistance
+          </h1>
+          <button
+            onClick={() => setShowConfirm999(true)}
+            className="bg-red-600 text-white px-6 py-3 rounded-2xl font-black text-lg shadow-lg hover:bg-red-700 active:scale-95 transition-all flex items-center gap-2 animate-bounce"
+          >
+            🆘 CALL 999
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {emergencyContact ? (
+            <>
+              <a
+                href={`tel:${emergencyContact}`}
+                className="bg-white border-2 border-red-600 text-red-600 px-5 py-3 rounded-xl font-bold text-sm md:text-base shadow-sm hover:bg-red-50 transition flex items-center justify-center gap-2"
+              >
+                📞 Call Contact ({emergencyContact})
+              </a>
+              <a
+                href={`sms:${emergencyContact}?body=EMERGENCY! I need help. My location is being tracked: ${fetchLocation}`}
+                className="bg-white border-2 border-blue-600 text-blue-600 px-5 py-3 rounded-xl font-bold text-sm md:text-base shadow-sm hover:bg-blue-50 transition flex items-center justify-center gap-2"
+              >
+                💬 SMS Emergency Contact
+              </a>
+            </>
+          ) : (
+            <button
+              onClick={onProfile}
+              className="col-span-full bg-yellow-100 text-yellow-800 border border-yellow-300 px-5 py-3 rounded-xl font-bold text-sm md:text-base shadow-sm hover:bg-yellow-200 transition flex items-center justify-center gap-2"
+            >
+              ⚠️ Set Emergency Contact in Profile
+            </button>
+          )}
+        </div>
+      </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {emergencies.map(e => (
@@ -1390,16 +1629,196 @@ function EmergencyTab() {
           <p className="text-sm bg-red-700/50 p-4 rounded-xl italic">{emergencyData.instructions}</p>
         </motion.div>
       )}
+
+      {/* Confirmation Modal for 999 */}
+      <AnimatePresence>
+        {showConfirm999 && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl space-y-6 text-center"
+            >
+              <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto">
+                <AlertTriangle size={40} />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-2xl font-black text-slate-900">Confirm Emergency Call?</h2>
+                <p className="text-slate-600">This will initiate a call to emergency services (999). Only use this for real life-threatening emergencies.</p>
+              </div>
+              <div className="flex flex-col gap-3">
+                <button 
+                  onClick={handleCall999}
+                  className="w-full bg-red-600 text-white py-4 rounded-2xl font-black text-xl shadow-lg hover:bg-red-700 transition-all"
+                >
+                  YES, CALL 999
+                </button>
+                <button 
+                  onClick={() => setShowConfirm999(false)}
+                  className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold hover:bg-slate-200 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Patient Info Form Modal */}
+      <AnimatePresence>
+        {showPatientInfo && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 20, opacity: 0 }}
+              className="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl space-y-6 overflow-y-auto max-h-[90vh]"
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-slate-900">Emergency Patient Info</h2>
+                <button onClick={() => setShowPatientInfo(false)} className="p-2 hover:bg-slate-100 rounded-full">
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="bg-blue-50 p-4 rounded-2xl space-y-2">
+                <p className="text-blue-800 font-bold flex items-center gap-2">
+                  <Info size={18} /> REMINDER
+                </p>
+                <p className="text-blue-700 text-sm">Please remember to bring along your **IC (Identification Card)** and **Medication History** when the ambulance arrives.</p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Emergency Contact Number</label>
+                  <input 
+                    type="tel" 
+                    value={patient.emergencyContact}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="e.g. 012-3456789"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Blood Type</label>
+                  <select
+                    onChange={(e) => setBloodType(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+                  >
+                    <option value="">Select Blood Type</option>
+                    <option value="A+">A+</option>
+                    <option value="A-">A-</option>
+                    <option value="B+">B+</option>
+                    <option value="B-">B-</option>
+                    <option value="AB+">AB+</option>
+                    <option value="AB-">AB-</option>
+                    <option value="O+">O+</option>
+                    <option value="O-">O-</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Medical Conditions</label>
+                  <textarea 
+                    value={patient.conditions}
+                    onChange={(e) => setConditions(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none h-24"
+                    placeholder="e.g. Diabetes, Hypertension, Asthma..."
+                  />
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setShowPatientInfo(false)}
+                className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg hover:bg-blue-700 transition-all"
+              >
+                Save & Close
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
 
 function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: (updates: Partial<Patient>) => void }) {
+  
+  const [aiStatus, setAiStatus] = useState<'online' | 'offline' | 'checking' | null>(null);
+  const [bloodType, setBloodType] = useState(patient?.bloodType || "");
+  const [forceCheckIn, setforceCheckIn] = useState<boolean>(patient?.forceCheckIn || false);
+  const [isEnabled, setIsEnabled] = useState<boolean>(patient?.forceCheckIn || false);
+  
+  
+  useEffect(() => {
+    if (patient) {
+      setBloodType(patient.bloodType || "");
+      setforceCheckIn(patient.forceCheckIn || false);
+      setIsEnabled(patient.forceCheckIn || false);
+    }
+  }, [patient?.id, patient?.bloodType, patient?.forceCheckIn]);
+
   if (!patient) return null;
+
+  const checkAiStatus = async () => {
+    setAiStatus('checking');
+    try {
+      // Simple lightweight call to check if quota is available
+      await analyzeSymptoms("status check", "This is a system health check. Please respond with a valid JSON.");
+      setAiStatus('online');
+    } catch (err: any) {
+      if (err.message?.includes("429") || err.message?.toLowerCase().includes("quota")) {
+        setAiStatus('offline');
+      } else {
+        setAiStatus('offline');
+      }
+    }
+  };
+
+  const handleToggle = async () => {
+    const next = !isEnabled;   // compute new state
+
+    setIsEnabled(next);
+
+    // if (next) {
+    //   console.log("Force check in");
+    // } else {
+    //   console.log("No forced check in");
+    // }
+
+    await saveCheckInSetting(next);
+  };
+
+  const saveCheckInSetting = async (checkInSetting) => {
+    if (!patient) return;
+
+    const patientData = doc(db, 'users', patient.id);
+
+    await updateDoc(patientData, {
+      forceCheckIn: checkInSetting
+    }).catch(err =>
+      handleFirestoreError(err, OperationType.UPDATE, `users/${patient.id}`)
+    );
+  };
+
+  const updateBloodType = async (newBloodType) => {
+    if (!patient) return;
+
+    const patientData = doc(db, 'users', patient.id);
+
+    await updateDoc(patientData, {
+      bloodType: newBloodType
+    }).catch(err =>
+      handleFirestoreError(err, OperationType.UPDATE, `users/${patient.id}`)
+    );
+  };
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-      <h1 className="text-3xl font-bold">Patient Profile</h1>
+      <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">⚙️ Profile & Profile</h1>
       
       <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm space-y-8">
         <div className="flex items-center gap-6">
@@ -1417,26 +1836,119 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
           </div>
         </div>
 
+        <h3 className="font-bold mb-4">Personal Details</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <EditableField label="Age" value={patient.age.toString()} onSave={(val) => onUpdate({ age: parseInt(val) })} />
-          <EditableField label="Contact Number" value={patient.contact} onSave={(val) => onUpdate({ contact: val })} />
-          <EditableField label="Address" value={patient.address} onSave={(val) => onUpdate({ address: val })} />
-          <EditableField label="Emergency Contact" value={patient.emergencyContact} onSave={(val) => onUpdate({ emergencyContact: val })} />
+          <EditableField 
+            label="Age" 
+            value={patient.age.toString()} 
+            onSave={(val) => onUpdate({ age: parseInt(val) })} />
+          <EditableField 
+            label="Contact Number" 
+            value={patient.contact} 
+            onSave={(val) => onUpdate({ contact: val })} />
+          <EditableField 
+            label="Emergency Contact" 
+            value={patient.emergencyContact} 
+            onSave={(val) => onUpdate({ emergencyContact: val })} />
+          <EditableField 
+            label="Address" 
+            value={patient.address} 
+            onSave={(val) => onUpdate({ address: val })} />
+        </div>
+
+        <h3 className="font-bold mb-4">Medical Details</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="pt-6 border-t border-slate-100">
+          <EditableField 
+            label="Medical Conditions" 
+            value={patient.conditions} 
+            onSave={(val) => onUpdate({ conditions: val })} 
+            className="text-sm"
+          />
+          </div>
+          
+          <div className="pt-6 border-t border-slate-100">
+            <EditableField 
+              label="Allergies" 
+              value={patient.allergy} 
+              onSave={(val) => onUpdate({ allergy: val })} 
+              className="text-sm"
+            />
+          </div>
+
+          <div className="group relative space-y-1 p-2 rounded-xl hover:bg-slate-50 transition-colors">
+            <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
+              Blood Type
+            </label>
+
+            <select 
+              value={patient.bloodType}
+              onChange={(e) => {
+                const val = e.target.value;
+                onUpdate({ bloodType: val });  // update parent state immediately
+                updateBloodType(val);          // persist to Firestore
+              }}
+              className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="">Select Blood Type</option>
+              <option value="A+">A+</option>
+              <option value="A-">A-</option>
+              <option value="B+">B+</option>
+              <option value="B-">B-</option>
+              <option value="AB+">AB+</option>
+              <option value="AB-">AB-</option>
+              <option value="O+">O+</option>
+              <option value="O-">O-</option>
+            </select>
+          </div>
         </div>
 
         <div className="pt-6 border-t border-slate-100">
-          <h3 className="font-bold mb-4">Security & Settings</h3>
+          <h3 className="font-bold mb-4">System Status</h3>
           <div className="space-y-4">
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
               <div>
-                <p className="font-bold">Biometric Authentication</p>
-                <p className="text-xs text-slate-400">Use FaceID or Fingerprint to access records</p>
+                <p className="font-bold">AI Diagnostic Engine</p>
+                <p className="text-xs text-slate-400">Check if the AI analysis service is available</p>
               </div>
-              <div className="w-12 h-6 bg-blue-600 rounded-full relative">
-                <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full shadow-sm"></div>
+              <div className="flex items-center gap-3">
+                {aiStatus === 'online' && <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-lg">ONLINE</span>}
+                {aiStatus === 'offline' && <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded-lg">QUOTA FULL</span>}
+                <button 
+                  onClick={checkAiStatus}
+                  disabled={aiStatus === 'checking'}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition-all"
+                >
+                  {aiStatus === 'checking' ? 'Checking...' : 'Test Connection'}
+                </button>
               </div>
             </div>
           </div>
+        </div>
+
+        <div className="pt-6 border-t border-slate-100"> 
+          <h3 className="font-bold mb-4">Features</h3> 
+          <div className="space-y-4"> 
+            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+              <div> 
+                <p className="font-bold">Daily Check-In Reminder</p> 
+                <p className="text-xs text-slate-400">Set daily check-in to compulsory</p> 
+              </div> 
+              <div
+                value={forceCheckIn}
+                onClick={handleToggle}
+                className={`w-12 h-6 rounded-full relative cursor-pointer transition ${
+                  isEnabled ? "bg-blue-600" : "bg-gray-300"
+                }`}
+              >
+                <div
+                  className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition ${
+                    isEnabled ? "right-1" : "left-1"
+                  }`}
+                ></div>
+              </div>
+            </div> 
+        </div> 
         </div>
       </div>
     </motion.div>
