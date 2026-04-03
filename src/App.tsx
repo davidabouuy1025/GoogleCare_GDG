@@ -41,7 +41,8 @@ import {
   orderBy, 
   limit,
   Timestamp,
-  getDocFromServer
+  getDocFromServer,
+  Firestore
 } from 'firebase/firestore';
 import { 
   signInWithPopup, 
@@ -144,7 +145,7 @@ interface Patient {
   contact: string;
   phone?: string;
   bloodType?: string;
-  conditions?: string;
+  conditions: string;
   address: string;
   emergencyContact: string;
   checkInDeadline: string;
@@ -204,6 +205,7 @@ export default function App() {
           contact: data.patientContactNo || '',
           address: data.patientAddress || '',
           emergencyContact: data.patientEmergencyContact || '',
+          conditions: data.patientCondition || '',
           checkInDeadline: data.checkInDeadline || '09:00',
           lastCheckIn: data.lastCheckIn || null,
           deadlineMissed: data.deadlineMissed || false,
@@ -217,6 +219,7 @@ export default function App() {
           patientAddress: '',
           patientContactNo: '',
           patientEmergencyContact: '',
+          patientCondition: '',
           checkInDeadline: '09:00',
           lastCheckIn: null,
           deadlineMissed: false
@@ -228,6 +231,7 @@ export default function App() {
           contact: initialPatient.patientContactNo,
           address: initialPatient.patientAddress,
           emergencyContact: initialPatient.patientEmergencyContact,
+          conditions: initialPatient.patientCondition,
           checkInDeadline: initialPatient.checkInDeadline,
           lastCheckIn: initialPatient.lastCheckIn,
           deadlineMissed: initialPatient.deadlineMissed,
@@ -270,6 +274,7 @@ export default function App() {
     if (updates.contact !== undefined) firestoreUpdates.patientContactNo = updates.contact;
     if (updates.address !== undefined) firestoreUpdates.patientAddress = updates.address;
     if (updates.emergencyContact !== undefined) firestoreUpdates.patientEmergencyContact = updates.emergencyContact;
+    if(updates.conditions !== undefined) firestoreUpdates.patientCondition = updates.conditions;
     if (updates.checkInDeadline !== undefined) firestoreUpdates.checkInDeadline = updates.checkInDeadline;
 
     try {
@@ -688,7 +693,7 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
     window.speechSynthesis.speak(utterance);
   };
 
-  const disableButton = true;
+  const disableButton = false;
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
@@ -1266,8 +1271,10 @@ function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: (
     data: any;
   } | null>(null);
 
+  // Get emergency contact of user
   const emergencyContact = patient?.emergencyContact;
 
+  // Common emergencies
   const emergencies = [
     { title: "Heart Attack", advice: "1. Call 999 immediately. \n2. Chew aspirin if not allergic. \n3. Sit and stay calm. \n4. Loosen clothing.\n5. Apply CPR if losing pulse" },
     { title: "Seizure", advice: "1. Cushion head. \n2. Loosen tight clothing. \n3. Turn on side. \n4. Do NOT put anything in mouth. \n5. Time the seizure." },
@@ -1275,6 +1282,7 @@ function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: (
     { title: "Allergic Reaction", advice: "1. Use EpiPen if available. \n2. Call emergency services. \n3. Lay flat with legs raised. \n4. Monitor breathing." },
   ];
 
+  // Get current geolocation with timeout feature
   const getGeolocation = (timeout = 10000): Promise<GeolocationPosition> => {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -1295,6 +1303,7 @@ function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: (
     });
   };
 
+  // Get current location for SMS purpose
   const getLocation = () => {
       return new Promise<{lat:number, lng:number}>((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(
@@ -1322,6 +1331,7 @@ function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: (
       fetchLocation();
     }, []);
 
+  // When user clicks 'Request Help for XXX' button
   const triggerEmergency = async (situation: string) => {
     setLoading(true);
     setEmergencyData(null);
@@ -1344,7 +1354,7 @@ function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: (
     if (cacheRef.current) {
       const dist = getDistance(lat, lng, cacheRef.current.lat, cacheRef.current.lng);
       if (dist < 0.5 && (now - cacheRef.current.timestamp) < 10 * 60 * 1000) {
-        console.log("Using cached emergency data");
+        console.log("EmergencyTab: Using cached emergency data");
         setEmergencyData(cacheRef.current.data);
         setLoading(false);
         return;
@@ -1354,8 +1364,10 @@ function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: (
     try {
       let severity = "High";
       const s = situation.toLowerCase();
-      if (s.includes("allergic")) severity = "Medium";
-      else if (s.includes("asthma") || s.includes("seizure") || s.includes("heart")) severity = "Critical";
+      if (s.includes("allergic")) 
+        severity = "Medium";
+      else if (s.includes("asthma") || s.includes("seizure") || s.includes("heart")) 
+        severity = "Critical";
 
       const overpassQuery = `
         [out:json][timeout:15];
@@ -1377,6 +1389,7 @@ function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: (
       let osmData = null;
       let lastError = null;
 
+      // Try each endpoints
       for (const endpoint of endpoints) {
         try {
           const controller = new AbortController();
@@ -1454,6 +1467,7 @@ function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: (
     }
   };
 
+  // Call 999
   const handleCall999 = () => {
     setShowConfirm999(false);
     // Temporarily disabled calling function as requested
@@ -1461,6 +1475,7 @@ function EmergencyTab({patient, onProfile}:{patient:Patient | null, onProfile: (
     setShowPatientInfo(true);
   };
 
+  // HTML
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
       <div className="bg-red-50 border border-red-200 p-6 rounded-3xl shadow-sm space-y-4">
@@ -1699,6 +1714,16 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
     }
   };
 
+  // For toggle 
+  const [isEnabled, setIsEnabled] = useState(false);
+
+  const handleToggle = () => {
+    setIsEnabled(prev => !prev);
+
+  };
+
+  console.log("Conditions: ", patient.conditions);
+
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
       <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">⚙️ Profile & Profile</h1>
@@ -1720,18 +1745,28 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <EditableField label="Age" value={patient.age.toString()} onSave={(val) => onUpdate({ age: parseInt(val) })} />
-          <EditableField label="Contact Number" value={patient.contact} onSave={(val) => onUpdate({ contact: val })} />
-          <EditableField label="Personal Phone" value={patient.phone || "Not set"} onSave={(val) => onUpdate({ phone: val })} />
-          <EditableField label="Blood Type" value={patient.bloodType || "Not set"} onSave={(val) => onUpdate({ bloodType: val })} />
-          <EditableField label="Emergency Contact" value={patient.emergencyContact} onSave={(val) => onUpdate({ emergencyContact: val })} />
-          <EditableField label="Address" value={patient.address} onSave={(val) => onUpdate({ address: val })} />
+          <EditableField 
+            label="Age" 
+            value={patient.age.toString()} 
+            onSave={(val) => onUpdate({ age: parseInt(val) })} />
+          <EditableField 
+            label="Contact Number" 
+            value={patient.contact} 
+            onSave={(val) => onUpdate({ contact: val })} />
+          <EditableField 
+            label="Emergency Contact" 
+            value={patient.emergencyContact} 
+            onSave={(val) => onUpdate({ emergencyContact: val })} />
+          <EditableField 
+            label="Address" 
+            value={patient.address} 
+            onSave={(val) => onUpdate({ address: val })} />
         </div>
 
         <div className="pt-6 border-t border-slate-100">
           <EditableField 
             label="Medical Conditions" 
-            value={patient.conditions || "None listed"} 
+            value={patient.conditions} 
             onSave={(val) => onUpdate({ conditions: val })} 
             className="text-sm"
           />
@@ -1760,19 +1795,28 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
           </div>
         </div>
 
-        <div className="pt-6 border-t border-slate-100">
-          <h3 className="font-bold mb-4">Security & Settings</h3>
-          <div className="space-y-4">
+        <div className="pt-6 border-t border-slate-100"> 
+          <h3 className="font-bold mb-4">Features</h3> 
+          <div className="space-y-4"> 
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
-              <div>
-                <p className="font-bold">Biometric Authentication</p>
-                <p className="text-xs text-slate-400">Use FaceID or Fingerprint to access records</p>
+              <div> 
+                <p className="font-bold">Daily Check-In Reminder</p> 
+                <p className="text-xs text-slate-400">Use FaceID or Fingerprint to access records</p> 
+              </div> 
+              <div
+                onClick={handleToggle}
+                className={`w-12 h-6 rounded-full relative cursor-pointer transition ${
+                  isEnabled ? "bg-blue-600" : "bg-gray-300"
+                }`}
+              >
+                <div
+                  className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition ${
+                    isEnabled ? "right-1" : "left-1"
+                  }`}
+                ></div>
               </div>
-              <div className="w-12 h-6 bg-blue-600 rounded-full relative">
-                <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full shadow-sm"></div>
-              </div>
-            </div>
-          </div>
+            </div> 
+        </div> 
         </div>
       </div>
     </motion.div>

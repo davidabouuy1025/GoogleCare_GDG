@@ -12,6 +12,7 @@
         "patientContactNo": { "type": "string", "description": "Primary contact number" },
         "patientEmergencyContact": { "type": "string", "description": "Emergency contact number" },
         "patientHistory": { "type": "string", "description": "Medical history summary" },
+        "patientCondition": {"type": "string", "description":"Current medical condition"},
         "checkInDeadline": { "type": "string", "description": "Daily check-in deadline time (HH:mm)" },
         "lastCheckIn": { "type": "string", "description": "Timestamp of last check-in" },
         "deadlineMissed": { "type": "boolean", "description": "Whether the last deadline was missed" }
