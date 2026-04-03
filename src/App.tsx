@@ -151,6 +151,7 @@ interface Patient {
   checkInDeadline: string;
   lastCheckIn: string | null;
   deadlineMissed: boolean;
+  forceCheckIn: boolean;
 }
 
 // --- Components ---
@@ -209,6 +210,7 @@ export default function App() {
           checkInDeadline: data.checkInDeadline || '09:00',
           lastCheckIn: data.lastCheckIn || null,
           deadlineMissed: data.deadlineMissed || false,
+          forceCheckIn: data.forceCheckIn || true
         });
       } else {
         // Initialize patient profile if it doesn't exist
@@ -222,7 +224,8 @@ export default function App() {
           patientCondition: '',
           checkInDeadline: '09:00',
           lastCheckIn: null,
-          deadlineMissed: false
+          deadlineMissed: false,
+          forceCheckIn: true
         };
         setPatient({
           id: user.uid,
@@ -235,6 +238,7 @@ export default function App() {
           checkInDeadline: initialPatient.checkInDeadline,
           lastCheckIn: initialPatient.lastCheckIn,
           deadlineMissed: initialPatient.deadlineMissed,
+          forceCheckIn: initialPatient.forceCheckIn
         });
         setDoc(patientRef, initialPatient).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));
       }
@@ -424,12 +428,14 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
 
   useEffect(() => {
     if (!patient?.id) return;
+
     const q = query(
       collection(db, 'symptoms'),
       where('patientID', '==', patient.id),
       orderBy('date', 'desc'),
       limit(5)
     );
+
     const unsubscribe = onSnapshot(q, (snap) => {
       setSymptomHistory(snap.docs.map(d => ({
         condition: d.data().topCondition || d.data().Symptom,
@@ -1094,7 +1100,7 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
       riskLevel: data.risk_level || 'Low'
     }).catch(err => handleFirestoreError(err, OperationType.WRITE, `moods/${docId}`));
 
-    console.log("Check-In: Data(Mood) is successfully saved into Firebase")
+    console.log("Check-In: Data(Mood) is successfully saved into Firebase at ", now)
 
     // Update patient profile
     const patientRef = doc(db, 'users', patient.id);
@@ -1717,12 +1723,31 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
   // For toggle 
   const [isEnabled, setIsEnabled] = useState(false);
 
-  const handleToggle = () => {
-    setIsEnabled(prev => !prev);
+  const handleToggle = async () => {
+    const next = !isEnabled;   // compute new state
 
+    setIsEnabled(next);
+
+    // if (next) {
+    //   console.log("Force check in");
+    // } else {
+    //   console.log("No forced check in");
+    // }
+
+    await saveCheckInSetting(next);
   };
 
-  console.log("Conditions: ", patient.conditions);
+  const saveCheckInSetting = async (checkInSetting) => {
+    if (!patient) return;
+
+    const patientData = doc(db, 'users', patient.id);
+
+    await updateDoc(patientData, {
+      forceCheckIn: checkInSetting
+    }).catch(err =>
+      handleFirestoreError(err, OperationType.UPDATE, `users/${patient.id}`)
+    );
+  };
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
@@ -1801,7 +1826,7 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
               <div> 
                 <p className="font-bold">Daily Check-In Reminder</p> 
-                <p className="text-xs text-slate-400">Use FaceID or Fingerprint to access records</p> 
+                <p className="text-xs text-slate-400">Set daily check-in to compulsory</p> 
               </div> 
               <div
                 onClick={handleToggle}

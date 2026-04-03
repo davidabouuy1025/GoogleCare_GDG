@@ -15,7 +15,8 @@
         "patientCondition": {"type": "string", "description":"Current medical condition"},
         "checkInDeadline": { "type": "string", "description": "Daily check-in deadline time (HH:mm)" },
         "lastCheckIn": { "type": "string", "description": "Timestamp of last check-in" },
-        "deadlineMissed": { "type": "boolean", "description": "Whether the last deadline was missed" }
+        "deadlineMissed": { "type": "boolean", "description": "Whether the last deadline was missed" },
+        "forceCheckIn": {"type":"boolean", "description": "Whether daily check-in is compulsory"}
       },
       "required": ["patientID", "patientName"]
     },
