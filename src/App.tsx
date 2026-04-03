@@ -237,7 +237,7 @@ export default function App() {
           patientAllergy: '',
           patientBloodType: '',
           checkInDeadline: '09:00',
-          lastCheckIn: null,
+          lastCheckIn: getMalaysiaISOString,
           deadlineMissed: false,
           forceCheckIn: true
         };
@@ -379,6 +379,17 @@ export default function App() {
     );
   }
 
+  const isPastDeadline = () => {
+    if (!patient?.checkInDeadline) return false;
+    const now = new Date();
+    const [hours, minutes] = patient.checkInDeadline.split(':').map(Number);
+    const deadline = new Date();
+    deadline.setHours(hours, minutes, 0, 0);
+    return now > deadline;
+  };
+
+  const showCheckInAlert = patient?.forceCheckIn && isPastDeadline();
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-20 md:pb-0 md:pl-64">
       {/* Sidebar / Bottom Nav */}
@@ -390,10 +401,17 @@ export default function App() {
           <span className="text-xl font-bold tracking-tight">GoogleCare</span>
         </div>
 
-        <div className="hidden md:flex items-center gap-2 mb-8 px-2">
-          <AlertTriangle size={25}/>
-          <span>Check in immediately</span>
-        </div>
+        {showCheckInAlert && (
+          <div className="hidden md:flex items-center gap-3 mb-4 px-3 py-3 bg-red-50 border border-red-200 rounded-2xl animate-pulse">
+            <div className="w-8 h-8 bg-red-100 rounded-xl flex items-center justify-center shrink-0">
+              <AlertTriangle size={16} className="text-red-500" />
+            </div>
+            <div>
+              <p className="text-red-600 font-bold text-xs">Check-In Overdue</p>
+              <p className="text-red-400 text-[10px]">Please check in immediately</p>
+            </div>
+          </div>
+        )}
 
         <hr></hr>
         <NavItem icon={<AlertCircle size={20} />} label="Emergency" active={activeTab === 'emergency'} onClick={() => setActiveTab('emergency')} />
