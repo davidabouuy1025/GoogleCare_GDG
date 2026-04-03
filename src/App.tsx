@@ -20,12 +20,16 @@ import {
   Save,
   X,
   Clock,
-  LogIn
+  LogIn,
+  MessageSquare
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+
+// Forum Import
+import ForumTab from './ForumTab';
 
 // Firebase imports
 import { 
@@ -141,7 +145,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 }
 
 // --- Types ---
-type Tab = 'dashboard' | 'symptoms' | 'wound' | 'elderly' | 'emergency' | 'profile';
+type Tab = 'emergency' | 'dashboard' | 'symptoms' | 'wound' | 'elderly' | 'forum' | 'profile';
 
 interface Patient {
   id: string;
@@ -398,7 +402,7 @@ export default function App() {
         <NavItem icon={<Stethoscope size={20} />} label="Symptoms" active={activeTab === 'symptoms'} onClick={() => setActiveTab('symptoms')} />
         <NavItem icon={<Camera size={20} />} label="Wound" active={activeTab === 'wound'} onClick={() => setActiveTab('wound')} />
         <NavItem icon={<User size={20} />} label="Elderly" active={activeTab === 'elderly'} onClick={() => setActiveTab('elderly')} />
-        <NavItem icon={<Stethoscope size={20} />} label="Forum" active={activeTab === 'forum'} onClick={() => setActiveTab('forum')} />
+        <NavItem icon={<MessageSquare size={20} />} label="Forum" active={activeTab === 'forum'} onClick={() => setActiveTab('forum')} />
         <NavItem icon={<User size={20} />} label="Profile" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
         <hr></hr>
         
@@ -420,6 +424,7 @@ export default function App() {
           {activeTab === 'symptoms' && <SymptomAnalyzer key="symptoms" patientId={patient?.id} />}
           {activeTab === 'wound' && <WoundAnalyzer key="wound" patientId={patient?.id} />}
           {activeTab === 'elderly' && <ElderlyCheckIn key="elderly" patient={patient} onUpdateDeadline={(time) => updateProfile({ checkInDeadline: time })} />}
+          {activeTab === 'forum' && <ForumTab key="forum" userName={patient?.name || 'Patient'} />}
           {activeTab === 'emergency' && <EmergencyTab key="emergency" patient={patient} onProfile={() => setActiveTab('profile')}/>}
           {activeTab === 'profile' && <ProfileTab key="profile" patient={patient} onUpdate={updateProfile} />}
         </AnimatePresence>

@@ -60,6 +60,35 @@
         "date": { "type": "string", "format": "date-time", "description": "Date of recording" }
       },
       "required": ["patientID", "type", "analysis", "date"]
+    },
+      "ForumPost": {
+      "title": "Forum Post",
+      "description": "A post in the community forum",
+      "type": "object",
+      "properties": {
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "organRelated": { "type": "string", "enum": ["General", "Heart", "Kidney", "Lung", "Stomach", "Brain", "Other"] },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "replyCount": { "type": "integer" }
+      },
+      "required": ["authorId", "authorName", "title", "content", "organRelated", "createdAt"]
+    },
+    "ForumReply": {
+      "title": "Forum Reply",
+      "description": "A reply to a forum post",
+      "type": "object",
+      "properties": {
+        "postId": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["postId", "authorId", "authorName", "content", "createdAt"]
     }
   },
   "firestore": {
@@ -78,6 +107,14 @@
     "/wounds/{woundId}": {
       "schema": "Wound",
       "description": "Collection of wound records"
+    },
+    "/forum_posts/{postId}": {
+      "schema": "ForumPost",
+      "description": "Collection of community forum posts"
+    },
+    "/forum_replies/{replyId}": {
+      "schema": "ForumReply",
+      "description": "Collection of replies to forum posts"
     }
   }
 }

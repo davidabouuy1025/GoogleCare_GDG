@@ -42,6 +42,24 @@ service cloud.firestore {
              data.date is string;
     }
 
+    function isValidForumPost(data) {
+      return data.keys().hasAll(['authorId', 'authorName', 'title', 'content', 'organRelated', 'createdAt']) &&
+             data.authorId == request.auth.uid &&
+             data.authorName is string &&
+             data.title is string && data.title.size() < 200 &&
+             data.content is string && data.content.size() < 5000 &&
+             data.organRelated in ['General', 'Heart', 'Kidney', 'Lung', 'Stomach', 'Brain', 'Other'] &&
+             data.createdAt is string;
+    }
+
+    function isValidForumReply(data) {
+      return data.keys().hasAll(['postId', 'authorId', 'authorName', 'content', 'createdAt']) &&
+             data.authorId == request.auth.uid &&
+             data.authorName is string &&
+             data.content is string && data.content.size() < 2000 &&
+             data.createdAt is string;
+    }
+
     match /users/{patientID} {
       allow read: if isAuthenticated() && (isOwner(patientID) || isAdmin());
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(patientID) || isAdmin());
@@ -68,6 +86,20 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isValidWound(request.resource.data) && (request.resource.data.patientID == request.auth.uid || isAdmin());
       allow update: if isAuthenticated() && isValidWound(request.resource.data) && (request.resource.data.patientID == request.auth.uid || isAdmin());
       allow delete: if isAdmin();
+    }
+
+    match /forum_posts/{postId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidForumPost(request.resource.data);
+      allow update: if isAuthenticated() && (resource.data.authorId == request.auth.uid || isAdmin());
+      allow delete: if isAuthenticated() && (resource.data.authorId == request.auth.uid || isAdmin());
+    }
+
+    match /forum_replies/{replyId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidForumReply(request.resource.data);
+      allow update: if isAuthenticated() && (resource.data.authorId == request.auth.uid || isAdmin());
+      allow delete: if isAuthenticated() && (resource.data.authorId == request.auth.uid || isAdmin());
     }
   }
 }
