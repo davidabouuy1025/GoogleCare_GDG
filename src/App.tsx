@@ -968,11 +968,30 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
 }
 
 function WoundAnalyzer({ patientId }: { patientId?: string }) {
-  const [slots, setSlots] = useState<ImageSlot[]>([
-    { file: null, preview: null },
-    { file: null, preview: null },
-    { file: null, preview: null },
-  ]);
+  const EXAMPLES = [
+    { 
+      title: 'Surgical Incision', 
+      url: 'https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&q=80&w=400',
+      description: 'Post-operative healing check'
+    },
+    { 
+      title: 'Minor Burn', 
+      url: '/dataset/burn/burn1.jpg',
+      description: 'Second-degree burn assessment'
+    },
+    { 
+      title: 'Skin Ulcer', 
+      url: 'https://skinkraft.com/cdn/shop/articles/Evidence-Based_93b65bc7-4f8f-4109-a218-d37fc00d93c6_1024x1024.jpg?v=1606210364',
+      description: 'Chronic wound monitoring'
+    },
+    { 
+      title: 'Skin Cut', 
+      url: 'dataset/cut/cut4.jpg',
+      description: 'Wound cut on skin'
+    }
+  ];
+
+  const [customSlot, setCustomSlot] = useState<ImageSlot>({ file: null, preview: null });
   const [mode, setMode] = useState<AnalysisMode>('both');
   const [results, setResults] = useState<WoundResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1002,12 +1021,10 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
     }
   }, [cooldownRemaining]);
 
-  const handleFileChange = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setSlots(prev => prev.map((slot, i) =>
-      i === index ? { file, preview: URL.createObjectURL(file) } : slot
-    ));
+    setCustomSlot({ file, preview: URL.createObjectURL(file) });
   };
 
   const fileToBase64 = (file: File): Promise<string> =>
@@ -1018,9 +1035,98 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
       reader.readAsDataURL(file);
     });
 
-  const handleAnalyze = async () => {
-    const filledSlots = slots.filter(s => s.file);
-    if (!filledSlots.length || loading) return;
+  const urlToBase64 = async (url: string): Promise<string> => {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  const runAnalysis = async (base64: string, mimeType: string, slotIdx: number, currentMode: AnalysisMode) => {
+    let pythonResult = null;
+    let aiResult = null;
+
+    // Run Python model
+    if (currentMode === 'python' || currentMode === 'both') {
+      try {
+        const res = await fetch(`${PYTHON_API}/analyze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ images: [base64] })
+        });
+        const data = await res.json();
+        pythonResult = data.results?.[0] || null;
+      } catch (err) {
+        console.error('Python analysis failed:', err);
+      }
+    }
+
+    // Run AI model
+    if (currentMode === 'ai' || currentMode === 'both') {
+      try {
+        aiResult = await analyzeWound(base64, mimeType);
+      } catch (err) {
+        console.error('AI analysis failed:', err);
+      }
+    }
+
+    const result: WoundResult = {
+      slotIndex: slotIdx,
+      aiResult,
+      pythonResult
+    };
+
+    setResults(prev => {
+      const filtered = prev.filter(r => r.slotIndex !== slotIdx);
+      return [...filtered, result];
+    });
+
+    console.log(patientId, slotIdx, aiResult?.type, pythonResult?.type, aiResult?.analysis, aiResult?.recommendations)
+
+    // Save to Firestore
+    if (patientId && (aiResult || pythonResult)) {
+      addDoc(collection(db, 'wounds'), {
+        patientID: patientId,
+        imageIndex: slotIdx,
+        type: aiResult?.type || pythonResult?.type || 'Unknown', 
+        pythonType: pythonResult?.type || null, 
+        pythonConfidence: pythonResult?.confidence || null,
+        analysis: aiResult?.analysis || '',
+        recommendations: aiResult?.recommendations || '',
+        date: new Date().toISOString(),
+        isExample: slotIdx < 100 // Example indices are 0, 1, 2. Custom is 100.
+      }).catch(err => handleFirestoreError(err, OperationType.CREATE, 'wounds'));
+    }
+  };
+
+  const handleAnalyzeExample = async (index: number) => {
+    if (loading) return;
+    
+    const now = Date.now();
+    if (now - lastAiCall < AI_COOLDOWN_MS) {
+      setCooldownRemaining(AI_COOLDOWN_MS - (now - lastAiCall));
+      return;
+    }
+
+    setLoading(true);
+    setLastAiCall(now);
+    
+    try {
+      const base64 = await urlToBase64(EXAMPLES[index].url);
+      await runAnalysis(base64, 'image/jpeg', index, 'both'); // Examples use 'both' for best demo
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAnalyzeCustom = async () => {
+    if (loading || !customSlot.file) return;
 
     const now = Date.now();
     if (mode !== 'python' && now - lastAiCall < AI_COOLDOWN_MS) {
@@ -1029,61 +1135,11 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
     }
 
     setLoading(true);
-    setResults([]);
-    if (mode !== 'python') setLastAiCall(Date.now());
+    if (mode !== 'python') setLastAiCall(now);
 
     try {
-      const base64Images = await Promise.all(
-        slots.map(s => s.file ? fileToBase64(s.file) : Promise.resolve(''))
-      );
-
-      // Run Python model
-      let pythonResults: any[] = [];
-      if (mode === 'python' || mode === 'both') {
-        const res = await fetch(`${PYTHON_API}/analyze`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ images: base64Images })
-        });
-        const data = await res.json();
-        pythonResults = data.results || [];
-      }
-
-      // Run AI model
-      let aiResults: any[] = [];
-      if (mode === 'ai' || mode === 'both') {
-        aiResults = await Promise.all(
-          slots.map(async (slot, i) => {
-            if (!slot.file) return null;
-            return await analyzeWound(base64Images[i], slot.file.type);
-          })
-        );
-      }
-
-      // Combine results
-      const combined: WoundResult[] = slots.map((_, i) => ({
-        slotIndex: i,
-        aiResult: aiResults[i] || null,
-        pythonResult: pythonResults[i] || null,
-      })).filter(r => r.aiResult || r.pythonResult);
-
-      setResults(combined);
-
-      // Save to Firestore
-      if (patientId) {
-        await Promise.all(combined.map(r =>
-          addDoc(collection(db, 'wounds'), {
-            patientID: patientId,
-            imageIndex: r.slotIndex,
-            aiType: r.aiResult?.type || null,
-            pythonType: r.pythonResult?.type || null,
-            pythonConfidence: r.pythonResult?.confidence || null,
-            analysis: r.aiResult?.analysis || '',
-            recommendations: r.aiResult?.recommendations || '',
-            date: new Date().toISOString()
-          }).catch(err => handleFirestoreError(err, OperationType.CREATE, 'wounds'))
-        ));
-      }
+      const base64 = await fileToBase64(customSlot.file);
+      await runAnalysis(base64, customSlot.file.type, 100, mode); // 100 is index for custom
     } catch (err) {
       console.error(err);
     } finally {
@@ -1091,140 +1147,196 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
     }
   };
 
-  const hasImages = slots.some(s => s.file);
-
   return (
-    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8 pb-12">
       <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">🩸 Wound Analysis</h1>
 
-      <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
-
-        {/* Analysis Mode Selector */}
-        <div>
-          <label className="block text-sm font-bold text-slate-700 mb-3">Analysis Mode</label>
-          <div className="flex gap-3">
-            {(['ai', 'python', 'both'] as AnalysisMode[]).map(m => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
-                className={cn(
-                  "flex-1 py-3 rounded-2xl font-bold text-sm transition-all border",
-                  mode === m
-                    ? "bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100"
-                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
-                )}
-              >
-                {m === 'ai' && '🤖 AI Only'}
-                {m === 'python' && '🐍 Python Model'}
-                {m === 'both' && '⚡ Both'}
-              </button>
-            ))}
+      <section className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600">
+            <Info size={18} />
           </div>
-
-          {/* Python server status */}
-          {(mode === 'python' || mode === 'both') && (
-            <div className={cn(
-              "mt-3 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-2",
-              pythonStatus === 'online' ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
-            )}>
-              <div className={cn("w-2 h-2 rounded-full", pythonStatus === 'online' ? "bg-green-500" : "bg-red-500")} />
-              Python server: {pythonStatus === 'online' ? 'Running on localhost:5000' : 'Offline — run python server.py'}
+          <h2 className="text-xl font-bold text-slate-800">Wound Examples</h2>
+        </div>
+        <p className="text-slate-500 text-sm">See how the AI and Python models analyze different types of wounds.</p>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {EXAMPLES.map((ex, i) => (
+            <div key={i} className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+              <img src={ex.url} alt={ex.title} className="w-full h-48 object-cover" />
+              <div className="p-4 flex-1 flex flex-col gap-3">
+                <div>
+                  <h3 className="font-bold text-slate-800">{ex.title}</h3>
+                  <p className="text-xs text-slate-400">{ex.description}</p>
+                </div>
+                <button
+                  onClick={() => handleAnalyzeExample(i)}
+                  disabled={loading || cooldownRemaining > 0}
+                  className="mt-auto w-full py-2 rounded-xl bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-600 font-bold text-xs transition-all disabled:opacity-50"
+                >
+                  {loading ? 'Analyzing...' : 'Analyze Example'}
+                </button>
+              </div>
             </div>
-          )}
+          ))}
+        </div>
+      </section>
+
+      <hr className="border-slate-200" />
+
+      <section className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center text-purple-600">
+            <Upload size={18} />
+          </div>
+          <h2 className="text-xl font-bold text-slate-800">Custom Analysis</h2>
         </div>
 
-        {/* 3 Image Upload Slots */}
-        <div>
-          <label className="block text-sm font-bold text-slate-700 mb-3">Upload Wound Images (up to 3)</label>
-          <div className="grid grid-cols-3 gap-4">
-            {slots.map((slot, i) => (
-              <div
-                key={i}
-                onClick={() => document.getElementById(`wound-upload-${i}`)?.click()}
-                className="border-2 border-dashed border-slate-200 rounded-2xl aspect-square flex flex-col items-center justify-center gap-2 hover:border-blue-400 transition-colors cursor-pointer overflow-hidden relative"
-              >
-                {slot.preview ? (
-                  <>
-                    <img src={slot.preview} alt={`Wound ${i + 1}`} className="w-full h-full object-cover" />
-                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                      <p className="text-white text-xs font-bold">Change</p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <Upload size={24} className="text-slate-300" />
-                    <p className="text-xs text-slate-400 font-bold">Image {i + 1}</p>
-                  </>
-                )}
-                <input
-                  id={`wound-upload-${i}`}
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => handleFileChange(i, e)}
-                  className="hidden"
-                />
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+          {/* Analysis Mode Selector */}
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-3">Analysis Mode</label>
+            <div className="flex gap-3">
+              {(['ai', 'python', 'both'] as AnalysisMode[]).map(m => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m)}
+                  className={cn(
+                    "flex-1 py-3 rounded-2xl font-bold text-sm transition-all border",
+                    mode === m
+                      ? "bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100"
+                      : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                  )}
+                >
+                  {m === 'ai' && '🤖 AI Only'}
+                  {m === 'python' && '🐍 Python Model'}
+                  {m === 'both' && '⚡ Both'}
+                </button>
+              ))}
+            </div>
+
+            {/* Python server status */}
+            {(mode === 'python' || mode === 'both') && (
+              <div className={cn(
+                "mt-3 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-2",
+                pythonStatus === 'online' ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
+              )}>
+                <div className={cn("w-2 h-2 rounded-full", pythonStatus === 'online' ? "bg-green-500" : "bg-red-500")} />
+                Python server: {pythonStatus === 'online' ? 'Running on localhost:5000' : 'Offline — run python server.py'}
               </div>
+            )}
+          </div>
+
+          {/* Single Upload Slot */}
+          <div 
+            className="border-2 border-dashed border-slate-200 rounded-3xl p-8 flex flex-col items-center justify-center gap-4 hover:border-blue-400 transition-colors cursor-pointer relative overflow-hidden"
+            onClick={() => document.getElementById('wound-upload-custom')?.click()}
+          >
+            {customSlot.preview ? (
+              <img src={customSlot.preview} alt="Custom wound" className="w-full h-64 object-cover rounded-2xl" />
+            ) : (
+              <>
+                <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
+                  <Upload size={32} />
+                </div>
+                <div className="text-center">
+                  <p className="font-bold">Click to Upload Your Photo</p>
+                  <p className="text-sm text-slate-400">Take a clear picture of the wound</p>
+                </div>
+              </>
+            )}
+            <input id="wound-upload-custom" type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+          </div>
+
+          <button
+            onClick={handleAnalyzeCustom}
+            disabled={loading || !customSlot.file || cooldownRemaining > 0 || (mode !== 'ai' && pythonStatus === 'offline')}
+            className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-lg shadow-blue-100"
+          >
+            {loading ? "Analyzing..." : cooldownRemaining > 0 ? `Wait ${Math.ceil(cooldownRemaining / 1000)}s` : "Analyze My Wound"}
+          </button>
+        </div>
+      </section>
+
+      {/* Results Display */}
+      {results.length > 0 && (
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <CheckCircle2 size={24} className="text-green-500" />
+            Analysis Results
+          </h2>
+          <div className="grid grid-cols-1 gap-6">
+            {results.sort((a, b) => b.slotIndex - a.slotIndex).map((r) => (
+              <motion.div 
+                key={r.slotIndex} 
+                initial={{ opacity: 0, y: 20 }} 
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl space-y-6"
+              >
+                <div className="flex items-center justify-between border-b border-slate-50 pb-4">
+                  <h3 className="font-bold text-slate-700">
+                    {r.slotIndex < 100 ? `Example: ${EXAMPLES[r.slotIndex].title}` : 'Custom Upload Result'}
+                  </h3>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                    {new Date().toLocaleTimeString()}
+                  </span>
+                </div>
+
+                <div className={cn("grid gap-6", r.aiResult && r.pythonResult ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1")}>
+                  {/* Python Result */}
+                  {r.pythonResult && (
+                    <div className="p-5 bg-purple-50 border border-purple-100 rounded-2xl space-y-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-bold text-purple-500 uppercase tracking-wider">🐍 Python Model</p>
+                        <RiskBadge level={r.pythonResult.confidence > 0.7 ? 'High' : r.pythonResult.confidence > 0.4 ? 'Medium' : 'Low'} />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold text-purple-900">{r.pythonResult.type}</p>
+                        <p className="text-sm text-purple-700 font-medium">Confidence: {(r.pythonResult.confidence * 100).toFixed(1)}%</p>
+                      </div>
+                      <div className="space-y-2">
+                        {Object.entries(r.pythonResult.allScores).map(([label, score]) => (
+                          <div key={label} className="space-y-1">
+                            <div className="flex justify-between text-[10px] font-bold">
+                              <span className="text-purple-700 uppercase">{label}</span>
+                              <span className="text-purple-500">{(score * 100).toFixed(0)}%</span>
+                            </div>
+                            <div className="h-2 bg-purple-100 rounded-full overflow-hidden">
+                              <motion.div 
+                                initial={{ width: 0 }}
+                                animate={{ width: `${score * 100}%` }}
+                                className="h-full bg-purple-500 rounded-full" 
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AI Result */}
+                  {r.aiResult && (
+                    <div className="p-5 bg-blue-50 border border-blue-100 rounded-2xl space-y-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-bold text-blue-500 uppercase tracking-wider">🤖 AI Analysis</p>
+                        <RiskBadge level="Medium" /> {/* AI doesn't give explicit risk level in this mock, but we can infer or hardcode */}
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold text-blue-900">{r.aiResult.type}</p>
+                        <p className="text-sm text-blue-800 leading-relaxed">{r.aiResult.analysis}</p>
+                      </div>
+                      <div className="p-4 bg-white/60 rounded-xl border border-blue-100">
+                        <p className="text-xs font-bold text-blue-700 mb-2 uppercase tracking-wider">Care Recommendations</p>
+                        <p className="text-sm text-blue-900 italic">"{r.aiResult.recommendations}"</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
             ))}
           </div>
         </div>
-
-        <button
-          onClick={handleAnalyze}
-          disabled={loading || !hasImages || cooldownRemaining > 0 || (mode !== 'ai' && pythonStatus === 'offline')}
-          className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all"
-        >
-          {loading ? "Analyzing..." : cooldownRemaining > 0 ? `Wait ${Math.ceil(cooldownRemaining / 1000)}s` : "Analyze Wounds"}
-        </button>
-      </div>
-
-      {/* Results */}
-      {results.map((r, i) => (
-        <motion.div key={i} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-          className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl space-y-6">
-          
-          <h3 className="font-bold text-slate-700">Image {r.slotIndex + 1} Results</h3>
-
-          <div className={cn("grid gap-6", r.aiResult && r.pythonResult ? "grid-cols-2" : "grid-cols-1")}>
-
-            {/* Python Result */}
-            {r.pythonResult && (
-              <div className="p-4 bg-purple-50 border border-purple-100 rounded-2xl space-y-3">
-                <p className="text-xs font-bold text-purple-500 uppercase tracking-wider">🐍 Python Model</p>
-                <p className="text-xl font-bold text-purple-900">{r.pythonResult.type}</p>
-                <p className="text-sm text-purple-700">
-                  Confidence: {(r.pythonResult.confidence * 100).toFixed(1)}%
-                </p>
-                <div className="space-y-1">
-                  {Object.entries(r.pythonResult.allScores).map(([label, score]) => (
-                    <div key={label} className="space-y-0.5">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-purple-700">{label}</span>
-                        <span className="text-purple-500">{(score * 100).toFixed(1)}%</span>
-                      </div>
-                      <div className="h-1.5 bg-purple-100 rounded-full overflow-hidden">
-                        <div className="h-1.5 bg-purple-400 rounded-full" style={{ width: `${score * 100}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* AI Result */}
-            {r.aiResult && (
-              <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl space-y-3">
-                <p className="text-xs font-bold text-blue-500 uppercase tracking-wider">🤖 AI Analysis</p>
-                <p className="text-xl font-bold text-blue-900">{r.aiResult.type}</p>
-                <p className="text-sm text-blue-800">{r.aiResult.analysis}</p>
-                <div className="p-3 bg-white rounded-xl">
-                  <p className="text-xs font-bold text-blue-700 mb-1">Recommendations</p>
-                  <p className="text-sm text-blue-800">{r.aiResult.recommendations}</p>
-                </div>
-              </div>
-            )}
-          </div>
-        </motion.div>
-      ))}
+      )}
     </motion.div>
   );
 }
@@ -1337,6 +1449,7 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
       <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">👴👵 Elderly Check-In</h1>
       
       <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+        {/* <h2 className="text-xl font-bold flex items-center gap-2">Daily Check-In</h2> */}
         <div className="p-4 bg-blue-50 rounded-2xl flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Clock className="text-blue-600" />
@@ -1429,7 +1542,7 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
       )}
 
       {/* Mood History List */}
-      <div className="space-y-4">
+      <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
         <h2 className="text-xl font-bold flex items-center gap-2">
           <History size={24} className="text-blue-600" />
           Mood Check-In History
