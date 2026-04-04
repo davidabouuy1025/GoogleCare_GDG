@@ -221,8 +221,8 @@ export default function App() {
           bloodType: data.patientBloodType,
           checkInDeadline: data.checkInDeadline || '09:00',
           lastCheckIn: data.lastCheckIn || null,
-          deadlineMissed: data.deadlineMissed || false,
-          forceCheckIn: data.forceCheckIn || true
+          deadlineMissed: data.deadlineMissed ?? false,
+          forceCheckIn: data.forceCheckIn ?? false
         });
       } else {
         // Initialize patient profile if it doesn't exist
@@ -237,9 +237,9 @@ export default function App() {
           patientAllergy: '',
           patientBloodType: '',
           checkInDeadline: '09:00',
-          lastCheckIn: getMalaysiaISOString,
+          lastCheckIn: getMalaysiaISOString(),
           deadlineMissed: false,
-          forceCheckIn: true
+          forceCheckIn: false
         };
         setPatient({
           id: user.uid,
@@ -252,7 +252,7 @@ export default function App() {
           allergy: initialPatient.patientAllergy,
           bloodType: initialPatient.patientBloodType,
           checkInDeadline: initialPatient.checkInDeadline,
-          lastCheckIn: initialPatient.lastCheckIn,
+          lastCheckIn: initialPatient.lastCheckIn ?? '',
           deadlineMissed: initialPatient.deadlineMissed,
           forceCheckIn: initialPatient.forceCheckIn
         });
@@ -1756,7 +1756,7 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
   useEffect(() => {
     if (patient) {
       setBloodType(patient.bloodType || "");
-      setforceCheckIn(patient.forceCheckIn || false);
+      setforceCheckIn(patient.forceCheckIn ?? false);
       setIsEnabled(patient.forceCheckIn || false);
     }
   }, [patient?.id, patient?.bloodType, patient?.forceCheckIn]);
@@ -1779,18 +1779,11 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
   };
 
   const handleToggle = async () => {
-    const next = !isEnabled;   // compute new state
-
-    setIsEnabled(next);
-
-    // if (next) {
-    //   console.log("Force check in");
-    // } else {
-    //   console.log("No forced check in");
-    // }
-
-    await saveCheckInSetting(next);
-  };
+  const next = !isEnabled;
+  setIsEnabled(next);
+  onUpdate({ forceCheckIn: next });
+  await saveCheckInSetting(next);
+};
 
   const saveCheckInSetting = async (checkInSetting) => {
     if (!patient) return;
@@ -1885,8 +1878,8 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
               value={patient.bloodType}
               onChange={(e) => {
                 const val = e.target.value;
-                onUpdate({ bloodType: val });  // update parent state immediately
-                updateBloodType(val);          // persist to Firestore
+                onUpdate({ bloodType: val });
+                updateBloodType(val);
               }}
               className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
             >
@@ -1932,10 +1925,9 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
               <div> 
                 <p className="font-bold">Daily Check-In Reminder</p> 
-                <p className="text-xs text-slate-400">Set daily check-in to compulsory</p> 
+                <p className="text-xs text-slate -400">Set daily check-in to compulsory</p> 
               </div> 
               <div
-                value={forceCheckIn}
                 onClick={handleToggle}
                 className={`w-12 h-6 rounded-full relative cursor-pointer transition ${
                   isEnabled ? "bg-blue-600" : "bg-gray-300"
