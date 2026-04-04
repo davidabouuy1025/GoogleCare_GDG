@@ -11,3 +11,4 @@ venv/
 !.env.example
 firebase-applet-config.json
 dist/
+.firebase/
