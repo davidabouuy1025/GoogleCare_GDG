@@ -57,16 +57,7 @@ import {
 } from 'firebase/auth';
 import { db, auth } from './firebase';
 import { analyzeSymptoms, checkInElderly, analyzeWound } from './services/aiService';
-
-// --- Local Knowledge Base (to minimize AI usage) ---
-const COMMON_CAUSES: Record<string, string> = {
-  "headache": "Common causes: Dehydration, stress, eye strain, or lack of sleep. Try drinking water and resting in a dark room.",
-  "fever": "Common causes: Viral infection, cold, or flu. Monitor your temperature and stay hydrated.",
-  "sore throat": "Common causes: Common cold, allergies, or dry air. Try warm salt water gargles.",
-  "cough": "Common causes: Post-nasal drip, allergies, or a lingering cold. Stay hydrated and use a humidifier.",
-  "nausea": "Common causes: Indigestion, motion sickness, or mild food poisoning. Sip clear liquids and rest.",
-  "fatigue": "Common causes: Lack of sleep, stress, or minor illness. Ensure you're getting enough rest and nutrition."
-};
+import {COMMON_CAUSES} from './COMMON_CAUSES';
 
 const AI_COOLDOWN_MS = 30000; // 30 seconds cooldown for AI calls
 
@@ -479,7 +470,7 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
       collection(db, 'symptoms'),
       where('patientID', '==', patient.id),
       orderBy('date', 'desc'),
-      limit(5)
+      // limit(5)
     );
 
     const unsubscribe = onSnapshot(q, (snap) => {
@@ -509,8 +500,9 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
     return () => unsubscribe();
   }, [patient?.id]);
 
-  const highRiskAlerts = symptomHistory.filter(h => h.risk === 'High');
+  console.log(symptomHistory);
 
+  const highRiskAlerts = symptomHistory.filter(h => h.risk === 'High');
 
   if (!patient) return <div className="flex items-center justify-center h-64">Loading Dashboard...</div>;
 
@@ -638,8 +630,8 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
 
   const [localAdvice, setLocalAdvice] = useState<string | null>(null);
 
-  const handleAnalyze = async () => {
-    const symptomsText = input || selectedSymptoms.join(', ');
+  const handleAnalyze = async (manualText?: string) => {
+    const symptomsText = (typeof manualText === 'string' ? manualText : '') || input || selectedSymptoms.join(', ');
     if (!symptomsText) return;
 
     // Check cooldown
@@ -649,20 +641,20 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
       return;
     }
 
-    // Minimize AI usage: Check local knowledge base first
-    const lowerInput = symptomsText.toLowerCase();
-    const foundCause = Object.keys(COMMON_CAUSES).find(cause => lowerInput.includes(cause));
-    if (foundCause && !input.includes("analyze deeply")) {
-      setLocalAdvice(COMMON_CAUSES[foundCause]);
-      // We still allow them to analyze deeply if they want
-    } else {
-      setLocalAdvice(null);
-    }
-
-    setLoading(true);
     setResult(null);
     setConversationContext('');
     setFollowUpAnswer('');
+    setLocalAdvice(null);
+
+    // Minimize AI usage: Check local knowledge base first
+    const lowerInput = symptomsText.toLowerCase();
+    const foundCause = Object.keys(COMMON_CAUSES).find(cause => lowerInput.includes(cause));
+    if (foundCause && !symptomsText.includes("analyze deeply")) {
+      setLocalAdvice(COMMON_CAUSES[foundCause]);
+      return;
+    }
+
+    setLoading(true);
 
     try {
       const data = await analyzeSymptoms(symptomsText, '');
@@ -749,8 +741,7 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-      <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">🩺 Symptom Analysis</h1>
-      
+      <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">🩺 Symptom Analysis</h1>      
       
       <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
         <div>
@@ -802,7 +793,7 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
         </div>
 
         <button 
-          onClick={handleAnalyze}
+          onClick={() => handleAnalyze()}
           disabled={loading || (!input && selectedSymptoms.length === 0) || cooldownRemaining > 0}
           className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
         >
@@ -817,12 +808,21 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
           <div>
             <p className="font-bold text-blue-900">Quick Tip (Local Check)</p>
             <p className="text-sm text-blue-700">{localAdvice}</p>
+            <br></br>
             <button 
-              onClick={() => { setInput(prev => prev + " (analyze deeply)"); handleAnalyze(); }}
+              onClick={() => { 
+                const deepText = input + " (analyze deeply)";
+                setInput(deepText); 
+                handleAnalyze(deepText); 
+              }}
               className="text-xs font-bold text-blue-600 underline mt-2"
             >
               Still concerned? Run full AI analysis
             </button>
+            <p className="text-xs text-blue-700">
+              👆 Give more details for better results (e.g. where it hurts and how long it has lasted)
+            </p>
+
           </div>
         </div>
       )}
@@ -865,6 +865,11 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
           <div className="prose prose-slate max-w-none">
             <h3 className="text-lg font-bold mb-2">What to do?</h3>
             <ReactMarkdown>{result.advice}</ReactMarkdown>
+          </div>
+
+          <div className="prose prose-slate max-w-none">
+            <h3 className="text-lg font-bold mb-2">Medication</h3>
+            <ReactMarkdown>{result.med}</ReactMarkdown>
           </div>
 
           {result.triggerElderlyCheckIn && (
@@ -1214,7 +1219,7 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
 
         <button 
           onClick={handleSubmit}
-          disabled={loading || !mood || !vitals || cooldownRemaining > 0}
+          disabled={loading || !mood || cooldownRemaining > 0}
           className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all"
         >
           {loading ? "Processing..." : cooldownRemaining > 0 ? `Wait ${Math.ceil(cooldownRemaining / 1000)}s` : "Submit Check-In"}
