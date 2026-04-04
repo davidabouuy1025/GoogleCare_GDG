@@ -81,7 +81,7 @@ export const checkInElderly = async (mood: string, vitals: string) => {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Evaluate elderly check-in. Mood: ${mood}, Vitals/Notes: ${vitals}. 
-      Detect any immediate health risks. Use simple, caring language.
+      Detect any immediate health risks.
       Return JSON: risk_detected (boolean), assessment (string), risk_level (Low/Medium/High).`,
       config: {
         responseMimeType: "application/json",
