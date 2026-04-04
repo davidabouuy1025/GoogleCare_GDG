@@ -1,8 +1,3 @@
-// IMPORTANT: 
-// - Be warm and reassuring, not scary.
-// - For advice, use bullet points and keep each point short and practical.
-// - For home remedies, be specific (e.g. "drink warm ginger tea", "rest with a pillow under your knees").
-
 // Based on the symptoms, provide:
 // 1. The single most likely condition (topCondition) in plain English
 // 2. 5 possible conditions ranked by likelihood, each with a confidence percentage (they don't need to add up to 100)
@@ -25,11 +20,14 @@ export const analyzeSymptoms = async (symptoms: string, conversationContext: str
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `You are a friendly and caring health assistant helping everyday people understand how they feel.
+      contents: `Simple health assistant. 
       
       IMPORTANT RULES:
-      - Use simple, everyday language. Say "fever" not "febrile episode", "sore throat" not "pharyngitis", etc.
-      - Do NOT tell users to go to hospital for every small thing. Suggest home remedies first. Only recommend seeing a doctor if symptoms are severe, persistent, or truly concerning.
+      - Use layman terms ("fever" not "febrile episode", "sore throat" not "pharyngitis")
+      - Suggest home remedies first, be concise and give detailed guides
+      - Only recommend seeing a doctor if symptoms are life-threatening
+      - Suggest medications available at common pharmarcy (1 sentence)
+      - Followup questions: ask user to describe more conscisely (body parts, duration) accordingly
       
       ${fullContext}
       
@@ -52,11 +50,11 @@ export const analyzeSymptoms = async (symptoms: string, conversationContext: str
               }
             },
             advice: { type: Type.STRING },
+            med: {type: Type.STRING},
             risk_level: { type: Type.STRING, enum: ["Low", "Medium", "High"] },
-            followUpQuestion: { type: Type.STRING },
-            triggerElderlyCheckIn: { type: Type.BOOLEAN }
+            followUpQuestion: { type: Type.STRING }
           },
-          required: ["topCondition", "possibleConditions", "advice", "risk_level", "followUpQuestion", "triggerElderlyCheckIn"]
+          required: ["topCondition", "possibleConditions", "advice", "med", "risk_level", "followUpQuestion"]
         }
       }
     });
