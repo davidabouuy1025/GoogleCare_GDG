@@ -61,44 +61,17 @@ import { db, auth } from './firebase';
 import { analyzeSymptoms, checkInElderly, analyzeWound } from './services/aiService';
 import {COMMON_CAUSES} from './COMMON_CAUSES';
 
-const AI_COOLDOWN_MS = 30000; // 30 seconds cooldown for AI calls
+const AI_COOLDOWN_MS = 45000; // 30 seconds cooldown for AI calls
 
 // --- Utility ---
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-function getMalaysiaTime() {
-  return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kuala_Lumpur" }));
-}
+import {getMalaysiaTime, getMalaysiaISOString, getMalaysiaDateKey, getDeadlineDate} from './utility/time-related';
 
-function getMalaysiaISOString() {
-  return getMalaysiaTime().toISOString();
-}
+import {isUnsafeInput} from './utility/search_banned_words'
 
-function getMalaysiaDateKey() {
-  return getMalaysiaTime().toISOString().split('T')[0];
-}
-
-function capitalizeFirst(str: string): string{
-  if (!str) return "";
-  return str.charAt(0).toUpperCase() + str.slice(1);
-};
-
-function getDeadlineDate(deadlineTime) {
-const [hours, minutes] = deadlineTime.split(":").map(Number);
-
-  const now = new Date(); // today
-
-  return new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    hours,
-    minutes,
-    0
-  );
-}
 
 // --- Error Handling ---
 enum OperationType {
@@ -157,7 +130,7 @@ type Tab = 'emergency' | 'dashboard' | 'symptoms' | 'wound' | 'elderly' | 'forum
 
 type AnalysisMode = 'ai' | 'python' | 'both';
 
-const PYTHON_API = 'http://localhost:5000';
+const PYTHON_API = 'http://localhost:3000/api/python';
 
 interface ImageSlot {
   file: File | null;
@@ -502,6 +475,17 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
   const [moodHistory, setMoodHistory] = useState<any[]>([]);
 
   useEffect(() => {
+    // Proactively request location to trigger browser popup when entering dashboard
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        () => console.log("Location access granted"),
+        (err) => console.warn("Location access denied or failed:", err),
+        { timeout: 5000 }
+      );
+    }
+  }, []);
+
+  useEffect(() => {
     if (!patient?.id) return;
 
     const q = query(
@@ -693,7 +677,6 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
     setFollowUpAnswer('');
     setLocalAdvice(null);
 
-
     // Minimize AI usage: Check local knowledge base first
     const lowerInput = symptomsText.toLowerCase();
     const foundCause = Object.keys(COMMON_CAUSES).find(cause => lowerInput.includes(cause));
@@ -704,27 +687,41 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
       return;
     }
 
+    setLastAiCall(Date.now());
+
     try {
-      setLastAiCall(Date.now());
-      const data = await analyzeSymptoms(symptomsText, '');
-      setResult(data);
-      setConversationContext(`User symptoms: ${symptomsText}`);
+      if (isUnsafeInput(symptomsText)){
+        const data=  {
+          topCondition: "Unable to assess safely",
+          possibleConditions: [],
+          advice: "I can't safely assist with that request. Please consult a medical professional.",
+          med: "",
+          risk_level: "Medium",
+          followUpQuestion: "Can you describe your symptoms in a safe and general way?"
+        };
+          setResult(data);
+      } else {
+        const data = await analyzeSymptoms(symptomsText, '');
+        setResult(data);
+        setConversationContext(`User symptoms: ${symptomsText}`);
 
-      // Save to Firestore — symptoms collection only
-      if (patientId) {
-        await addDoc(collection(db, 'symptoms'), {
-          patientID: patientId,
-          Symptom: symptomsText,
-          topCondition: data.topCondition || '',
-          riskLevel: data.risk_level || 'Low',
-          confidenceScore: data.possibleConditions?.[0]?.confidence || 0,
-          date: new Date().toISOString()
-        }).catch(err => handleFirestoreError(err, OperationType.CREATE, 'symptoms'));
-      }
+        // Save to Firestore — symptoms collection only
+        if (patientId) {
+          await addDoc(collection(db, 'symptoms'), {
+            patientID: patientId,
+            Symptom: symptomsText,
+            topCondition: data.topCondition || '',
+            riskLevel: data.risk_level || 'Low',
+            confidenceScore: data.possibleConditions?.[0]?.confidence || 0,
+            date: new Date().toISOString()
+          }).catch(err => handleFirestoreError(err, OperationType.CREATE, 'symptoms'));
+        }
 
-      if (!data.isQuotaExceeded) {
-        speak(data.advice);
-      }
+        // Disable voice 
+        // if (!data.isQuotaExceeded) {
+        //   speak(data.advice);
+        // }
+    }
     } catch (err) {
       console.error(err);
     } finally {
@@ -744,8 +741,8 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
     }
 
     setFollowUpLoading(true);
+    setLastAiCall(Date.now());
     try {
-      setLastAiCall(Date.now());
       const updatedContext = `${conversationContext}\nFollow-up answer: ${followUpAnswer}`;
       const data = await analyzeSymptoms(followUpAnswer, updatedContext);
       setResult(data);
@@ -1861,7 +1858,10 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
           </h1>
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <button
-              onClick={() => setShowFacilitiesPanel(true)}
+              onClick={() => {
+                setShowFacilitiesPanel(true);
+                searchNearbyFacilities(true);
+              }}
               className="flex-1 sm:flex-none bg-blue-600 text-white px-4 py-3 rounded-2xl font-bold text-sm shadow-md hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
             >
               <Search size={18} /> Search Hospital
@@ -2047,16 +2047,15 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
               <div className="p-6 overflow-y-auto space-y-6">
                 <div className="aspect-video bg-slate-900 rounded-2xl overflow-hidden shadow-inner relative group">
                   <video 
-                    src={selectedEmergency.video} 
+                    src={"/videos/"+selectedEmergency.title.toLowerCase().split(" ").join("_") + ".mp4"} 
                     autoPlay 
-                    loop 
-                    muted 
+                    loop
                     playsInline
                     className="w-full h-full object-cover"
                   />
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-transparent transition-colors">
+                  {/* <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-transparent transition-colors">
                     <p className="text-white/50 text-xs font-mono">Video: {selectedEmergency.video}</p>
-                  </div>
+                  </div> */}
                 </div>
 
                 <div className="bg-red-50 p-6 rounded-2xl border border-red-100">
