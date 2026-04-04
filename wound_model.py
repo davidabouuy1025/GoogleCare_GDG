@@ -59,9 +59,9 @@ model = models.Sequential([
 model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
 # 4. Train Model
-# model.fit(train_generator, epochs=10, validation_data=validation_generator)
+model.fit(train_generator, epochs=10, validation_data=validation_generator)
 
 # 5. Save Model
-# model.save('wound_classifier_model.h5')
+model.save('wound_classifier_model.h5')
 
 print("Model training script initialized. Please populate the /dataset folder with images to train.")
