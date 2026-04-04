@@ -117,7 +117,7 @@ export const analyzeWound = async (base64Image: string, mimeType: string) => {
     const response = await ai.models.generateContent({
       model: "gemini-3.1-flash-image-preview", // Use image model for wound analysis
       contents: [
-        { text: "Analyze this wound image. Identify the type (Burn, Cut, Infection, Ulcer) and provide care instructions. Return JSON: type (string), analysis (string), recommendations (string)." },
+        { text: "Identify whether Burn, Cut, Infection, Ulcer) and provide care instructions. Return JSON: type (string), analysis (string), recommendations (string)." },
         { inlineData: { data: base64Image, mimeType: mimeType } }
       ],
       config: {
