@@ -58,7 +58,7 @@ export const analyzeSymptoms = async (symptoms: string, conversationContext: str
         }
       }
     });
-    return JSON.parse(response.text);
+    return JSON.parse(response.text ?? "{}");
   } catch (error: any) {
     if (error.message?.includes("429") || error.message?.toLowerCase().includes("quota")) {
       return {
@@ -97,7 +97,7 @@ export const checkInElderly = async (mood: string, vitals: string) => {
       }
     });
 
-    return JSON.parse(response.text);
+    return JSON.parse(response.text ?? "{}");
   } catch (error: any) {
     if (error.message?.includes("429") || error.message?.toLowerCase().includes("quota")) {
       return {
@@ -134,7 +134,7 @@ export const analyzeWound = async (base64Image: string, mimeType: string) => {
       }
     });
 
-    return JSON.parse(response.text);
+    return JSON.parse(response.text ?? "{}");
   } catch (error: any) {
     if (error.message?.includes("429") || error.message?.toLowerCase().includes("quota")) {
       return {
