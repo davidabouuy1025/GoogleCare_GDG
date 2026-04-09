@@ -657,7 +657,7 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
   const [localAdvice, setLocalAdvice] = useState<string | null>(null);
 
   // Create delay
-  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
   const handleAnalyze = async (manualText?: string) => {
     if (loading) return;
@@ -1613,7 +1613,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
     }
   }, [patient?.id, patient?.bloodType]);
 
-  const updateBloodType = async (newBloodType) => {
+  const updateBloodType = async (newBloodType : string) => {
     if (!patient) return;
 
     const patientData = doc(db, 'users', patient.id);
@@ -2269,7 +2269,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
                     <label className="flex text-sm font-bold text-slate-700 mb-1">Patient Name</label>
                     <input 
                       type="name" 
-                      value={patient.name}
+                      value={patient?.name ?? ''}
                       onChange={(e) => setPhone(e.target.value)}
                       className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
                       placeholder="e.g. 012-3456789"
@@ -2280,7 +2280,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
                     <label className="flex text-sm font-bold text-slate-700 mb-1">Patient Age</label>
                     <input 
                       type="age" 
-                      value={patient.age}
+                      value={patient?.age ?? 20}
                       onChange={(e) => setPhone(e.target.value)}
                       className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
                       placeholder="e.g. 012-3456789"
@@ -2292,7 +2292,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
                   <label className="block text-sm font-bold text-slate-700 mb-1">Emergency Contact Number</label>
                   <input 
                     type="tel" 
-                    value={patient.emergencyContact}
+                    value={patient?.emergencyContact ?? ''}
                     onChange={(e) => setPhone(e.target.value)}
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
                     placeholder="e.g. 012-3456789"
@@ -2302,7 +2302,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">Blood Type</label>
                   <select
-                    value={patient.bloodType}
+                    value={patient?.bloodType ?? ""}
                     onChange={(e) => {
                       const val = e.target.value;
                       onUpdate({ bloodType: val });
@@ -2325,7 +2325,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">Medical Conditions</label>
                   <textarea 
-                    value={patient.conditions}
+                    value={patient?.conditions ?? ''}
                     onChange={(e) => setConditions(e.target.value)}
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none h-24"
                     placeholder="e.g. Diabetes, Hypertension, Asthma..."
@@ -2398,7 +2398,7 @@ function FacilityCard({ facility, color }: { facility: any, color: 'red' | 'blue
 function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: (updates: Partial<Patient>) => void }) {
   
   const [aiStatus, setAiStatus] = useState<'online' | 'offline' | 'checking' | null>(null);
-  const [bloodType, setBloodType] = useState(patient?.bloodType || "");
+  const [bloodType, setBloodType] = useState<string>(patient?.bloodType || "");
   const [forceCheckIn, setforceCheckIn] = useState<boolean>(patient?.forceCheckIn || false);
   const [isEnabled, setIsEnabled] = useState<boolean>(patient?.forceCheckIn || false);
   
@@ -2434,7 +2434,7 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
   await saveCheckInSetting(next);
 };
 
-  const saveCheckInSetting = async (checkInSetting) => {
+  const saveCheckInSetting = async (checkInSetting: boolean) => {
     if (!patient) return;
 
     const patientData = doc(db, 'users', patient.id);
@@ -2446,7 +2446,7 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
     );
   };
 
-  const updateBloodType = async (newBloodType) => {
+  const updateBloodType = async (newBloodType: string) => {
     if (!patient) return;
 
     const patientData = doc(db, 'users', patient.id);
