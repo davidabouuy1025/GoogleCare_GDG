@@ -130,7 +130,7 @@ type Tab = 'emergency' | 'dashboard' | 'symptoms' | 'wound' | 'elderly' | 'forum
 
 type AnalysisMode = 'ai' | 'python' | 'both';
 
-const PYTHON_API = 'http://localhost:3000/api/python';
+const PYTHON_API = 'http://localhost:5001/api/python';
 
 interface ImageSlot {
   file: File | null;
@@ -1117,7 +1117,7 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
     
     try {
       const base64 = await urlToBase64(EXAMPLES[index].url);
-      await runAnalysis(base64, 'image/jpeg', index, 'both'); // Examples use 'both' for best demo
+      await runAnalysis(base64, 'image/jpeg', index, 'both');
     } catch (err) {
       console.error(err);
     } finally {
@@ -1222,7 +1222,7 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
                 pythonStatus === 'online' ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
               )}>
                 <div className={cn("w-2 h-2 rounded-full", pythonStatus === 'online' ? "bg-green-500" : "bg-red-500")} />
-                Python server: {pythonStatus === 'online' ? 'Running on localhost:5000' : 'Offline — run python server.py'}
+                Python server: {pythonStatus === 'online' ? 'Running on localhost:5000' : 'Offline — run python_server.py'}
               </div>
             )}
           </div>
@@ -1291,25 +1291,28 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
                         <RiskBadge level={r.pythonResult.confidence > 0.7 ? 'High' : r.pythonResult.confidence > 0.4 ? 'Medium' : 'Low'} />
                       </div>
                       <div>
-                        <p className="text-2xl font-bold text-purple-900">{r.pythonResult.type}</p>
-                        <p className="text-sm text-purple-700 font-medium">Confidence: {(r.pythonResult.confidence * 100).toFixed(1)}%</p>
+                        <p className="text-2xl font-bold text-purple-900">{r.pythonResult.type.toUpperCase()}</p>
+                        <p className="text-sm text-purple-700 font-medium">Confidence: {(r.pythonResult.confidence).toFixed(1)}%</p>
                       </div>
                       <div className="space-y-2">
                         {Object.entries(r.pythonResult.allScores).map(([label, score]) => (
                           <div key={label} className="space-y-1">
                             <div className="flex justify-between text-[10px] font-bold">
                               <span className="text-purple-700 uppercase">{label}</span>
-                              <span className="text-purple-500">{(score * 100).toFixed(0)}%</span>
+                              <span className="text-purple-500">{(score).toFixed(0)}%</span>
                             </div>
                             <div className="h-2 bg-purple-100 rounded-full overflow-hidden">
                               <motion.div 
                                 initial={{ width: 0 }}
-                                animate={{ width: `${score * 100}%` }}
+                                animate={{ width: `${score}%` }}
                                 className="h-full bg-purple-500 rounded-full" 
                               />
                             </div>
                           </div>
                         ))}
+                      </div>
+                      <div>
+                        Add description for each cut/burn/infection/ulcer case
                       </div>
                     </div>
                   )}
