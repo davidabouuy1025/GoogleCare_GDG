@@ -1,4 +1,3 @@
-// --- Local Knowledge Base (to minimize AI usage) ---
 export const COMMON_CAUSES: Record<string, string> = {
 "headache": "Common causes: Dehydration, stress, eye strain, or lack of sleep. Try drinking water and resting in a dark room.",
 "fever": "Common causes: Viral infection, cold, or flu. Monitor your temperature and stay hydrated.",

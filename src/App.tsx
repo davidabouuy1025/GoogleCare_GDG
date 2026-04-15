@@ -31,7 +31,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 // Forum Import
-import ForumTab from './ForumTab';
+import ForumTab from './TabForum';
 
 // Firebase imports
 import { 
@@ -59,7 +59,9 @@ import {
 } from 'firebase/auth';
 import { db, auth } from './firebase';
 import { analyzeSymptoms, checkInElderly, analyzeWound } from './services/aiService';
-import {COMMON_CAUSES} from './COMMON_CAUSES';
+import {COMMON_CAUSES} from './DATA_SYMPTOM/COMMON_CAUSES';
+import { WOUND_EXPLANATION } from './DATA_WOUND/WOUND_EXPLANATION';
+import { WOUND_TODO } from './DATA_WOUND/WOUND_TODO';
 
 const AI_COOLDOWN_MS = 45000; // 30 seconds cooldown for AI calls
 
@@ -998,6 +1000,12 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
   const [pythonStatus, setPythonStatus] = useState<'online' | 'offline' | 'checking'>('checking');
   const [lastAiCall, setLastAiCall] = useState<number>(0);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
+  const [woundExplanation, setWoundExplanation] = useState('');
+  const [woundTodo, setWoundTodo] = useState('');
+
+  const normalizeType = (type?: string) => {
+    return type?.toLowerCase().trim() || "unknown";
+  };
 
   // Check Python server status
   useEffect(() => {
@@ -1059,7 +1067,7 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
           body: JSON.stringify({ images: [base64] })
         });
         const data = await res.json();
-        pythonResult = data.results?.[0] || null;
+        pythonResult = data.results?.[0] || null;        
       } catch (err) {
         console.error('Python analysis failed:', err);
       }
@@ -1282,58 +1290,128 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
                   </span>
                 </div>
 
-                <div className={cn("grid gap-6", r.aiResult && r.pythonResult ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1")}>
+                <div className={cn(
+                  "grid gap-6",
+                  r.aiResult && r.pythonResult ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1"
+                )}>
+                  
                   {/* Python Result */}
-                  {r.pythonResult && (
-                    <div className="p-5 bg-purple-50 border border-purple-100 rounded-2xl space-y-4">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-bold text-purple-500 uppercase tracking-wider">🐍 Python Model</p>
-                        <RiskBadge level={r.pythonResult.confidence > 0.7 ? 'High' : r.pythonResult.confidence > 0.4 ? 'Medium' : 'Low'} />
-                      </div>
-                      <div>
-                        <p className="text-2xl font-bold text-purple-900">{r.pythonResult.type.toUpperCase()}</p>
-                        <p className="text-sm text-purple-700 font-medium">Confidence: {(r.pythonResult.confidence).toFixed(1)}%</p>
-                      </div>
-                      <div className="space-y-2">
-                        {Object.entries(r.pythonResult.allScores).map(([label, score]) => (
-                          <div key={label} className="space-y-1">
-                            <div className="flex justify-between text-[10px] font-bold">
-                              <span className="text-purple-700 uppercase">{label}</span>
-                              <span className="text-purple-500">{(score).toFixed(0)}%</span>
+                  {r.pythonResult && (() => {
+                    // 🔥 Normalize type safely
+                    const woundType = r.pythonResult.type?.toLowerCase().trim();
+
+                    // 🔗 Lookup mapping
+                    const explanation = WOUND_EXPLANATION[woundType] || "No description available.";
+                    const todo = WOUND_TODO[woundType] || "No care instructions available.";
+
+                    return (
+                      <div className="p-5 bg-purple-50 border border-purple-100 rounded-2xl space-y-4">
+                        
+                        {/* Header */}
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-bold text-purple-500 uppercase tracking-wider">
+                            🐍 Python Model
+                          </p>
+                          <RiskBadge 
+                            level={
+                              r.pythonResult.confidence > 0.7
+                                ? 'High'
+                                : r.pythonResult.confidence > 0.4
+                                ? 'Medium'
+                                : 'Low'
+                            } 
+                          />
+                        </div>
+
+                        {/* Main Result */}
+                        <div>
+                          <p className="text-2xl font-bold text-purple-900">
+                            {r.pythonResult.type.toUpperCase()}
+                          </p>
+                          <p className="text-sm text-purple-700 font-medium">
+                            Confidence: {(r.pythonResult.confidence).toFixed(1)}%
+                          </p>
+                        </div>
+
+                        {/* Score Bars */}
+                        <div className="space-y-2">
+                          {Object.entries(r.pythonResult.allScores).map(([label, score]) => (
+                            <div key={label} className="space-y-1">
+                              <div className="flex justify-between text-[10px] font-bold">
+                                <span className="text-purple-700 uppercase">{label}</span>
+                                <span className="text-purple-500">{(score).toFixed(0)}%</span>
+                              </div>
+                              <div className="h-2 bg-purple-100 rounded-full overflow-hidden">
+                                <motion.div 
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${score}%` }}
+                                  className="h-full bg-purple-500 rounded-full" 
+                                />
+                              </div>
                             </div>
-                            <div className="h-2 bg-purple-100 rounded-full overflow-hidden">
-                              <motion.div 
-                                initial={{ width: 0 }}
-                                animate={{ width: `${score}%` }}
-                                className="h-full bg-purple-500 rounded-full" 
-                              />
-                            </div>
+                          ))}
+                        </div>
+
+                        {/* 🔥 Explanation + Action */}
+                        <div className="space-y-3">
+                          
+                          {/* Explanation */}
+                          <div className="p-3 bg-white rounded-xl border border-purple-100">
+                            <p className="text-xs font-bold text-purple-600 uppercase">
+                              Explanation
+                            </p>
+                            <p className="text-sm text-purple-900">
+                              {explanation}
+                            </p>
                           </div>
-                        ))}
+
+                          {/* What To Do */}
+                          <div className="p-3 bg-white rounded-xl border border-purple-100">
+                            <p className="text-xs font-bold text-purple-600 uppercase">
+                              What To Do
+                            </p>
+                            <p className="text-sm text-purple-900">
+                              {todo}
+                            </p>
+                          </div>
+
+                        </div>
                       </div>
-                      <div>
-                        Add description for each cut/burn/infection/ulcer case
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* AI Result */}
                   {r.aiResult && (
                     <div className="p-5 bg-blue-50 border border-blue-100 rounded-2xl space-y-4">
+                      
                       <div className="flex items-center justify-between">
-                        <p className="text-xs font-bold text-blue-500 uppercase tracking-wider">🤖 AI Analysis</p>
-                        <RiskBadge level="Medium" /> {/* AI doesn't give explicit risk level in this mock, but we can infer or hardcode */}
+                        <p className="text-xs font-bold text-blue-500 uppercase tracking-wider">
+                          🤖 AI Analysis
+                        </p>
+                        <RiskBadge level="Medium" />
                       </div>
+
                       <div>
-                        <p className="text-2xl font-bold text-blue-900">{r.aiResult.type}</p>
-                        <p className="text-sm text-blue-800 leading-relaxed">{r.aiResult.analysis}</p>
+                        <p className="text-2xl font-bold text-blue-900">
+                          {r.aiResult.type}
+                        </p>
+                        <p className="text-sm text-blue-800 leading-relaxed">
+                          {r.aiResult.analysis}
+                        </p>
                       </div>
+
                       <div className="p-4 bg-white/60 rounded-xl border border-blue-100">
-                        <p className="text-xs font-bold text-blue-700 mb-2 uppercase tracking-wider">Care Recommendations</p>
-                        <p className="text-sm text-blue-900 italic">"{r.aiResult.recommendations}"</p>
+                        <p className="text-xs font-bold text-blue-700 mb-2 uppercase tracking-wider">
+                          Care Recommendations
+                        </p>
+                        <p className="text-sm text-blue-900 italic">
+                          "{r.aiResult.recommendations}"
+                        </p>
                       </div>
+
                     </div>
                   )}
+
                 </div>
               </motion.div>
             ))}
