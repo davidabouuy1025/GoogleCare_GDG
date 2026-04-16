@@ -23,7 +23,9 @@ import {
   LogIn,
   MessageSquare,
   Truck,
-  Search
+  Search,
+  Phone,
+  MessageCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -1093,6 +1095,7 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
       return [...filtered, result];
     });
 
+
     console.log(patientId, slotIdx, aiResult?.type, pythonResult?.type, aiResult?.analysis, aiResult?.recommendations)
 
     // Save to Firestore
@@ -1686,6 +1689,8 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
   const [bloodType, setBloodType] = useState(patient?.bloodType || "");
   const [conditions, setConditions] = useState(patient?.conditions || "");
   const [phone, setPhone] = useState(patient?.phone || "");
+  const [showCallNotif, setShowCallNotif] = useState(false);
+  const [showSmsNotif, setShowSmsNotif] = useState(false);
   
   // For blood type (semilar to Profile)
   useEffect(() => {
@@ -2074,6 +2079,10 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
             <>
               <a
                 href={`tel:${emergencyContact}`}
+                onClick={() => {
+                  setShowCallNotif(true);
+                  setTimeout(() => setShowCallNotif(false), 4000); // auto-dismiss
+                }}
                 className="bg-white border-2 border-red-600 text-red-600 px-5 py-3 rounded-xl font-bold text-sm md:text-base shadow-sm hover:bg-red-50 transition flex items-center justify-center gap-2"
               >
                 📞 Call Emergency Contact ({emergencyContact})
@@ -2081,6 +2090,10 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
 
               <a
                 href={`sms:${emergencyContact}?body=EMERGENCY! I need help. My location is being tracked.`}
+                onClick={() => {
+                  setShowSmsNotif(true);
+                  setTimeout(() => setShowSmsNotif(false), 4000);
+                }}
                 className="bg-white border-2 border-blue-600 text-blue-600 px-5 py-3 rounded-xl font-bold text-sm md:text-base shadow-sm hover:bg-blue-50 transition flex items-center justify-center gap-2"
               >
                 💬 SMS Emergency Contact
@@ -2114,6 +2127,45 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
 
       {/* Medical Facilities Side Panel */}
       <AnimatePresence>
+          {showCallNotif && (
+            <motion.div
+              initial={{ opacity: 0, y: -20, x: 20 }}
+              animate={{ opacity: 1, y: 0, x: 0 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="fixed top-4 right-4 z-[60] bg-red-600 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-4 max-w-xs border-2 border-white"
+            >
+              <div className="bg-white/20 p-2 rounded-full animate-pulse">
+                <Phone size={24} />
+              </div>
+              <div className="flex-1">
+                <p className="font-bold text-sm">Calling Emergency Contact</p>
+                <p className="text-[10px] opacity-90">Dialing {emergencyContact}...</p>
+              </div>
+              <button onClick={() => setShowCallNotif(false)} className="p-1 hover:bg-white/10 rounded-lg">
+                <X size={18} />
+              </button>
+            </motion.div>
+          )}
+
+          {showSmsNotif && (
+            <motion.div
+              initial={{ opacity: 0, y: -20, x: 20 }}
+              animate={{ opacity: 1, y: 0, x: 0 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="fixed top-4 right-4 z-[60] bg-blue-600 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-4 max-w-xs border-2 border-white"
+            >
+              <div className="bg-white/20 p-2 rounded-full animate-pulse">
+                <MessageCircle size={24} />
+              </div>
+              <div className="flex-1">
+                <p className="font-bold text-sm">SMS Prepared</p>
+                <p className="text-[10px] opacity-90">Opening message to {emergencyContact}...</p>
+              </div>
+              <button onClick={() => setShowSmsNotif(false)} className="p-1 hover:bg-white/10 rounded-lg">
+                <X size={18} />
+              </button>
+            </motion.div>
+          )}
         {showFacilitiesPanel && (
           <>
             {/* Backdrop */}
