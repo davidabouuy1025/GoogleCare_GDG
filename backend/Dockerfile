@@ -10,8 +10,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy model files and server code
-COPY ./model ./model
-COPY ./python_server.py ./server.py
+COPY . .
 
 # Cloud Run uses PORT env var
 ENV PORT=8080
