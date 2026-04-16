@@ -12,3 +12,9 @@ venv/
 firebase-applet-config.json
 dist/
 .firebase/
+client_credentials.json
+token.json
+variables.*
+*.pb
+*.tflite
+*.keras
