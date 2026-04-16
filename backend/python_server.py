@@ -225,5 +225,7 @@ def vision_route():
 # ───────────────── MAIN ─────────────────
 if __name__ == "__main__":
     load_tflite_model()
-    print("🚀 Server running at http://localhost:5001")
-    app.run(host="0.0.0.0", port=5001)
+    port = int(os.environ.get("PORT", 8080))
+    print("🚀 Server running at http://localhost:{port}")
+    app.run(host="0.0.0.0", port=port)
+    
