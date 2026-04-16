@@ -16,4 +16,4 @@ COPY . .
 ENV PORT=8080
 EXPOSE 8080
 
-CMD ["python", "server.py"]
+CMD ["python", "python_server.py"]
