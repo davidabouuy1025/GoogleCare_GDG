@@ -1,9 +1,7 @@
 # GoogleCare_GDG
-## TODO
-- update aiService Prompt
-- enable early hospital lookup instead of clicking emergency button 
-- if push to github, since api to require, is there any method else for panels to access more easily
-- 
+
+## About GoogleCare
+Your AI healthcare companion that could **analyze your symptoms, wound condition** and **daily check-in**. It always keeps track of your daily condition, providing feedback and analysis. Also, GoogleCare is integrated with **one-click for emergency** which may be your virtual paramedic during emergency situations.
 
 ## Run Locally
 
@@ -12,14 +10,17 @@
 1. Install dependencies:
    `npm install`
 
-2. Set the `GEMINI_API_KEY` in [.env](.env) to your Gemini API key
+2. Set the `GEMINI_API_KEY` and `GOOGLE_CLOUD_VISION_API_KEY` in [.env](.env) to your Gemini API key
 
-3. Run the app:
+3. Start the python server: 
+   `python run wound_model.py`
+
+4. Run the app:
    `npm run dev`
 
-4. To stop the program, use `CTRL + C`
+5. To stop the program, use `CTRL + C`
 
-5. Useful commands: 
+6. Useful commands: 
 - `netstat -ano | findstr : <PORT>` - to check whether a port is open/closed
 - `taskkill /PID <PID> /f` - forced close port
 
@@ -67,20 +68,4 @@
 
 2. **wound_model.py**: A reference Python script. While the live app uses Gemini Vision for wound analysis, this file serves as a blueprint for how a custom TensorFlow/Keras model could be trained for the same purpose.
 
-## How each tab in `src/App.tsx` works
-### `Dashboard`
-
-### `Analyze Symptoms`
-1. When `SymptomAnalyzer` function in `App.tsk`, it gets user inputs and passed to `AnalyzeSymptom` in `src/services/aiService.ts` for AI analysis
-2. Then, data is returned back and passed to `handleAnalyze()` to check whether patientID exists
-3. If data is valid, it is then passed to `addDoc()` from `firebase/firestore`
-   - Collection: collection(db, 'symptoms')
-   - Payload: An object that contains attributes (ie. patientID, Symptom, topCondition, riskLevel, date)
-4. `isValidSymptom()` and `isAutheticated()` are then executed for security check based on `firestore.rules`
-5. `handleFireStoreError()` is called if any error is raised
-
-### `Analyze Wound`
-
-### `Elderly Check-In`
-
-### `Profile & Setting`
+## 
