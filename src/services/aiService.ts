@@ -10,10 +10,6 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
-const VISION_API_KEY = process.env.GOOGLE_CLOUD_VISION_API_KEY;
-
-const VISION_API_URL = `https://vision.googleapis.com/v1/images:annotate?key=${VISION_API_KEY}`;
-
 const QUOTA_ERROR_MESSAGE = "AI is currently resting due to high demand. Please try again later or consult a medical professional for urgent concerns.";
 
 function interpretVisionLabels(
@@ -204,6 +200,10 @@ export const checkInElderly = async (mood: string, vitals: string) => {
     throw error;
   }
 };
+
+const VISION_API_KEY = import.meta.env.VITE_GOOGLE_CLOUD_VISION_API_KEY;
+
+const VISION_API_URL = `https://vision.googleapis.com/v1/images:annotate?key=${VISION_API_KEY}`;
 
 export const analyzeWound = async (base64Image: string, mimeType: string) => {
   try {
