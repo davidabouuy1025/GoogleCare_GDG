@@ -4,7 +4,7 @@ import { createServer as createViteServer } from "vite";
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
   const PYTHON_FLASK_URL = "http://localhost:5000";
 
   app.use(express.json({ limit: "20mb" })); // needed for base64 images
