@@ -5,104 +5,106 @@ import io
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-# Google Auth
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
-from google.auth.exceptions import RefreshError
-
-# Google Cloud Vision
-from google.cloud import vision
-
-# TFLite / TensorFlow
 import numpy as np
 from PIL import Image
 
-# ── Try TFLite runtime first (faster) ─────────────────────────
+# Google Vision
+from google.cloud import vision
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+
+# TFLite
 try:
     import tflite_runtime.interpreter as tflite
 except ImportError:
     import tensorflow as tf
     tflite = tf.lite
 
+
+# ───────────────── APP SETUP ─────────────────
 app = Flask(__name__)
 CORS(app)
 
-# ── CONFIG ───────────────────────────────────────────────────
+# ───────────────── CONFIG ─────────────────
 TOKEN_FILE = "token.json"
-TFLITE_MODEL_FILE = "wound_classifier.tflite"
+MODEL_FILE = "wound_classifier.tflite"
 
-IMG_SIZE = (224, 224)  # MUST match training
+IMG_SIZE = (224, 224)
 CLASS_NAMES = ["burn", "cut", "infection", "ulcer"]
 
-# ── GLOBAL MODEL ─────────────────────────────────────────────
+# ───────────────── GLOBAL STATE ─────────────────
 interpreter = None
 input_details = None
 output_details = None
+model_ready = False
 
-# ── LOAD MODEL ───────────────────────────────────────────────
+
+# ───────────────── MODEL LOADING (LAZY SAFE) ─────────────────
 def load_tflite_model():
-    global interpreter, input_details, output_details
+    global interpreter, input_details, output_details, model_ready
 
-    if not os.path.exists(TFLITE_MODEL_FILE):
-        print("❌ Model not found. Run wound_model.py first.")
+    if not os.path.exists(MODEL_FILE):
+        print("❌ Model not found")
         return False
 
-    interpreter = tflite.Interpreter(model_path=TFLITE_MODEL_FILE)
+    interpreter = tflite.Interpreter(model_path=MODEL_FILE)
     interpreter.allocate_tensors()
 
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
 
+    model_ready = True
     print("✅ TFLite model loaded")
     return True
 
 
-# ── IMAGE PREPROCESS ─────────────────────────────────────────
+def ensure_model():
+    global model_ready
+    if not model_ready:
+        try:
+            load_tflite_model()
+        except Exception as e:
+            print("⚠️ Model load failed:", e)
+
+
+# ───────────────── IMAGE PREPROCESS ─────────────────
 def preprocess_image(image_bytes):
-    img = Image.open(io.BytesIO(image_bytes))
-
-    if img.mode != "RGB":
-        img = img.convert("RGB")
-
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     img = img.resize(IMG_SIZE)
 
-    img_array = np.array(img, dtype=np.float32) / 255.0
-    img_array = np.expand_dims(img_array, axis=0)
-
-    return img_array
+    arr = np.array(img, dtype=np.float32) / 255.0
+    return np.expand_dims(arr, axis=0)
 
 
-# ── TFLITE INFERENCE ─────────────────────────────────────────
+# ───────────────── TFLITE INFERENCE ─────────────────
 def run_tflite(image_bytes):
-    if interpreter is None:
-        return {"error": "Model not loaded"}
+    ensure_model()
 
-    if len(image_bytes) > 5 * 1024 * 1024:
-        return {"error": "Image too large"}
+    if interpreter is None:
+        return {"error": "Model not available"}
 
     try:
-        img_array = preprocess_image(image_bytes)
+        img = preprocess_image(image_bytes)
 
-        interpreter.set_tensor(input_details[0]['index'], img_array)
+        interpreter.set_tensor(input_details[0]["index"], img)
         interpreter.invoke()
 
-        predictions = interpreter.get_tensor(output_details[0]['index'])[0]
+        preds = interpreter.get_tensor(output_details[0]["index"])[0]
 
-        predicted_idx = int(np.argmax(predictions))
-        confidence = float(predictions[predicted_idx])
+        idx = int(np.argmax(preds))
+        conf = float(preds[idx])
 
-        # Confidence safety
-        if confidence < 0.6:
+        if conf < 0.6:
             return {
                 "type": "uncertain",
-                "confidence": round(confidence * 100, 2)
+                "confidence": round(conf * 100, 2)
             }
 
         return {
-            "type": CLASS_NAMES[predicted_idx],
-            "confidence": round(confidence * 100, 2),
+            "type": CLASS_NAMES[idx],
+            "confidence": round(conf * 100, 2),
             "allScores": {
-                CLASS_NAMES[i]: round(float(predictions[i]) * 100, 2)
+                CLASS_NAMES[i]: round(float(preds[i]) * 100, 2)
                 for i in range(len(CLASS_NAMES))
             }
         }
@@ -111,21 +113,21 @@ def run_tflite(image_bytes):
         return {"error": str(e)}
 
 
-# ── GOOGLE VISION ────────────────────────────────────────────
+# ───────────────── GOOGLE VISION ─────────────────
 def get_vision_client():
     if not os.path.exists(TOKEN_FILE):
-        raise RuntimeError("Run setup_auth.py first")
+        raise RuntimeError("token.json missing")
 
     with open(TOKEN_FILE) as f:
-        token_data = json.load(f)
+        data = json.load(f)
 
     creds = Credentials(
-        token=token_data.get("token"),
-        refresh_token=token_data.get("refresh_token"),
-        token_uri=token_data.get("token_uri"),
-        client_id=token_data.get("client_id"),
-        client_secret=token_data.get("client_secret"),
-        scopes=token_data.get("scopes"),
+        token=data.get("token"),
+        refresh_token=data.get("refresh_token"),
+        token_uri=data.get("token_uri"),
+        client_id=data.get("client_id"),
+        client_secret=data.get("client_secret"),
+        scopes=data.get("scopes"),
     )
 
     if creds.expired and creds.refresh_token:
@@ -145,32 +147,28 @@ def run_vision_api(image_bytes):
         for l in response.label_annotations[:10]
     ]
 
-    label_names = " ".join([l["desc"].lower() for l in labels])
+    text = " ".join([l["desc"].lower() for l in labels])
 
-    if "burn" in label_names:
+    if "burn" in text:
         wound = "burn"
-    elif "cut" in label_names:
+    elif "cut" in text:
         wound = "cut"
-    elif "infection" in label_names:
+    elif "infection" in text:
         wound = "infection"
-    elif "ulcer" in label_names:
+    elif "ulcer" in text:
         wound = "ulcer"
     else:
         wound = "unknown"
 
-    return {
-        "type": wound,
-        "labels": labels
-    }
+    return {"type": wound, "labels": labels}
 
 
 # ───────────────── ROUTES ─────────────────
-
 @app.route("/api/python/health")
 def health():
     return jsonify({
         "status": "ok",
-        "model_loaded": interpreter is not None,
+        "model_loaded": model_ready,
         "vision_ready": os.path.exists(TOKEN_FILE)
     })
 
@@ -190,10 +188,8 @@ def analyze():
             if "," in b64:
                 b64 = b64.split(",")[1]
 
-            image_bytes = base64.b64decode(b64)
-            result = run_tflite(image_bytes)
-
-            results.append(result)
+            img_bytes = base64.b64decode(b64)
+            results.append(run_tflite(img_bytes))
 
         except Exception as e:
             results.append({"error": str(e)})
@@ -213,19 +209,15 @@ def vision_route():
         if "," in b64:
             b64 = b64.split(",")[1]
 
-        image_bytes = base64.b64decode(b64)
-        result = run_vision_api(image_bytes)
-
-        return jsonify(result)
+        img_bytes = base64.b64decode(b64)
+        return jsonify(run_vision_api(img_bytes))
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-# ───────────────── MAIN ─────────────────
+# ───────────────── MAIN (CRITICAL FOR CLOUD RUN) ─────────────────
 if __name__ == "__main__":
-    load_tflite_model()
     port = int(os.environ.get("PORT", 8080))
-    print("🚀 Server running at http://localhost:{port}")
+    print(f"🚀 Server starting on 0.0.0.0:{port}")
     app.run(host="0.0.0.0", port=port)
-    
