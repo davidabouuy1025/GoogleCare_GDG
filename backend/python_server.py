@@ -4,6 +4,7 @@ import json
 import io
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask import send_from_directory
 
 import numpy as np
 from PIL import Image
@@ -22,8 +23,8 @@ except ImportError:
 
 
 # ───────────────── APP SETUP ─────────────────
-app = Flask(__name__)
-CORS(app)
+app = Flask(__name__, static_folder="static", static_url_path="")
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # ───────────────── CONFIG ─────────────────
 TOKEN_FILE = "token.json"
@@ -214,6 +215,18 @@ def vision_route():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_frontend(path):
+    static_folder = "static"
+
+    full_path = os.path.join(static_folder, path)
+
+    if path != "" and os.path.exists(full_path):
+        return send_from_directory(static_folder, path)
+
+    return send_from_directory(static_folder, "index.html")
 
 
 # ───────────────── MAIN (CRITICAL FOR CLOUD RUN) ─────────────────
@@ -221,3 +234,5 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     print(f"🚀 Server starting on 0.0.0.0:{port}")
     app.run(host="0.0.0.0", port=port)
+
+
