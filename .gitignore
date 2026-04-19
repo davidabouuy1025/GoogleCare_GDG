@@ -21,3 +21,5 @@ variables.*
 *.tflite
 *.keras
 static/
+docs/ModelContextProtocol.pptx
+.gitignore
