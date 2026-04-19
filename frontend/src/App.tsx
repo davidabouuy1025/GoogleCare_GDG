@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Activity, 
-  Stethoscope, 
-  User, 
-  AlertCircle, 
-  Heart, 
-  Camera, 
-  Mic, 
-  Volume2, 
-  History, 
-  MapPin, 
+import {
+  Activity,
+  Stethoscope,
+  User,
+  AlertCircle,
+  Heart,
+  Camera,
+  Mic,
+  Volume2,
+  History,
+  MapPin,
   PhoneCall,
   ChevronRight,
   Upload,
@@ -25,7 +25,8 @@ import {
   Truck,
   Search,
   Phone,
-  MessageCircle
+  MessageCircle,
+  ShieldCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -36,45 +37,46 @@ import { twMerge } from 'tailwind-merge';
 import ForumTab from './TabForum';
 
 // Firebase imports
-import { 
-  doc, 
-  getDoc, 
-  setDoc, 
-  updateDoc, 
-  onSnapshot, 
-  collection, 
-  addDoc, 
-  query, 
-  where, 
-  orderBy, 
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  onSnapshot,
+  collection,
+  addDoc,
+  query,
+  where,
+  orderBy,
   limit,
   Timestamp,
   getDocFromServer,
   Firestore
 } from 'firebase/firestore';
-import { 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  onAuthStateChanged, 
+import {
+  signInWithPopup,
+  GoogleAuthProvider,
+  onAuthStateChanged,
   signInAnonymously,
-  User as FirebaseUser 
+  User as FirebaseUser
 } from 'firebase/auth';
 import { db, auth } from './firebase';
 import { analyzeSymptoms, checkInElderly, analyzeWound } from './services/aiService';
-import {COMMON_CAUSES} from './DATA_SYMPTOM/COMMON_CAUSES';
+import { COMMON_CAUSES } from './DATA_SYMPTOM/COMMON_CAUSES';
 import { WOUND_EXPLANATION } from './DATA_WOUND/WOUND_EXPLANATION';
 import { WOUND_TODO } from './DATA_WOUND/WOUND_TODO';
+import { WOUND_EXAMPLES } from './DATA_WOUND/WOUND_EXAMPLES';
 
-const AI_COOLDOWN_MS = 45000; // 30 seconds cooldown for AI calls
+const AI_COOLDOWN_MS = 45000; // 45 seconds cooldown for AI calls
 
 // --- Utility ---
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-import {getMalaysiaTime, getMalaysiaISOString, getMalaysiaDateKey, getDeadlineDate} from './utility/time-related';
+import { getMalaysiaTime, getMalaysiaISOString, getMalaysiaDateKey, getDeadlineDate } from './utility/time-related';
 
-import {isUnsafeInput} from './utility/search_banned_words'
+import { isUnsafeInput } from './utility/search_banned_words'
 
 
 // --- Error Handling ---
@@ -134,7 +136,9 @@ type Tab = 'emergency' | 'dashboard' | 'symptoms' | 'wound' | 'elderly' | 'forum
 
 type AnalysisMode = 'ai' | 'python' | 'both';
 
-const PYTHON_API = 'http://localhost:5001/api/python';
+// To deploy it on Google Cloud, don't use local host
+// const PYTHON_API = 'http://localhost:5001/api/python';
+const PYTHON_API = 'https://google-care-73225723112.asia-southeast1.run.app/api/python';
 
 interface ImageSlot {
   file: File | null;
@@ -194,7 +198,7 @@ export default function App() {
       try {
         await getDocFromServer(doc(db, 'test', 'connection'));
       } catch (error) {
-        if(error instanceof Error && error.message.includes('the client is offline')) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
           console.error("testConnection(): Please check your Firebase configuration. ");
         }
       }
@@ -290,7 +294,7 @@ export default function App() {
   const updateProfile = async (updates: Partial<Patient>) => {
     if (!user) return;
     const patientRef = doc(db, 'users', user.uid);
-    
+
     // Map Patient type back to Firestore schema
     const firestoreUpdates: any = {};
     if (updates.name !== undefined) firestoreUpdates.patientName = updates.name;
@@ -298,7 +302,7 @@ export default function App() {
     if (updates.contact !== undefined) firestoreUpdates.patientContactNo = updates.contact;
     if (updates.address !== undefined) firestoreUpdates.patientAddress = updates.address;
     if (updates.emergencyContact !== undefined) firestoreUpdates.patientEmergencyContact = updates.emergencyContact;
-    if(updates.conditions !== undefined) firestoreUpdates.patientCondition = updates.conditions;
+    if (updates.conditions !== undefined) firestoreUpdates.patientCondition = updates.conditions;
     if (updates.allergy !== undefined) firestoreUpdates.patientAllergy = updates.allergy;
     if (updates.bloodType !== undefined) firestoreUpdates.patientBloodType = updates.bloodType;
     if (updates.checkInDeadline !== undefined) firestoreUpdates.checkInDeadline = updates.checkInDeadline;
@@ -333,14 +337,14 @@ export default function App() {
             <p className="text-slate-500 mt-2">Please sign in to access your health dashboard and monitoring tools.</p>
           </div>
           <div className='flex gap-3'>
-            <button 
+            <button
               onClick={login}
               className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all shadow-lg shadow-blue-100 active:scale-95"
             >
               <LogIn size={40} />
               Sign in with Google
             </button>
-            <button 
+            <button
               onClick={() => setShowGuestModal(true)}
               className="flex-1 border border-slate-200 hover:bg-slate-50 text-slate-600 px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all"
             >
@@ -429,9 +433,9 @@ export default function App() {
         <NavItem icon={<MessageSquare size={20} />} label="Forum" active={activeTab === 'forum'} onClick={() => setActiveTab('forum')} />
         <NavItem icon={<User size={20} />} label="Profile" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
         <hr></hr>
-        
+
         <div className="hidden md:block mt-auto pt-6 border-t border-slate-100">
-          <button 
+          <button
             onClick={() => auth.signOut()}
             className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 hover:bg-red-50 hover:text-red-600 transition-all w-full"
           >
@@ -446,10 +450,10 @@ export default function App() {
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && <Dashboard key="dashboard" patient={patient} onEmergency={() => setActiveTab('emergency')} />}
           {activeTab === 'symptoms' && <SymptomAnalyzer key="symptoms" patientId={patient?.id} />}
-          {activeTab === 'wound' && <WoundAnalyzer key="wound" patientId={patient?.id} />}
+          {activeTab === 'wound' && <WoundAnalyzer key="wound" patientId={patient?.id} wound={WOUND_EXAMPLES[0]} onClose={() => setActiveTab('wound')} />}
           {activeTab === 'elderly' && <ElderlyCheckIn key="elderly" patient={patient} onUpdateDeadline={(time) => updateProfile({ checkInDeadline: time })} />}
           {activeTab === 'forum' && <ForumTab key="forum" userName={patient?.name || 'Patient'} />}
-          {activeTab === 'emergency' && <EmergencyTab key="emergency" patient={patient} onProfile={() => setActiveTab('profile')} onUpdate={updateProfile}/>}
+          {activeTab === 'emergency' && <EmergencyTab key="emergency" patient={patient} onProfile={() => setActiveTab('profile')} onUpdate={updateProfile} />}
           {activeTab === 'profile' && <ProfileTab key="profile" patient={patient} onUpdate={updateProfile} />}
         </AnimatePresence>
       </main>
@@ -459,7 +463,7 @@ export default function App() {
 
 function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active: boolean, onClick: () => void }) {
   return (
-    <button 
+    <button
       onClick={onClick}
       className={cn(
         "flex flex-col md:flex-row items-center gap-1 md:gap-3 px-3 py-2 md:px-4 md:py-3 rounded-xl transition-all duration-200 w-full",
@@ -547,7 +551,7 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
           <h1 className="text-3xl font-bold">Welcome, {patient.name}</h1>
           <p className="text-slate-500">Here's your health summary for today.</p>
         </div>
-        <button 
+        <button
           onClick={onEmergency}
           className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-red-200 transition-transform active:scale-95"
         >
@@ -606,14 +610,13 @@ function Dashboard({ patient, onEmergency }: { patient: Patient | null, onEmerge
             <AlertTriangle size={20} className="text-orange-500" />
             Risk Alerts
           </h2>
-          <div className="space-y-3">
+          <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
             {highRiskAlerts.length > 0 ? (
               highRiskAlerts.map((a, i) => (
-                <div key={i} className={`p-3 rounded-2xl text-sm border ${
-                  a.risk === 'High' 
-                    ? 'bg-red-100 border-red-100 text-red-800' 
-                    : 'bg-orange-100 border-orange-100 text-orange-800'
-                }`}>
+                <div key={i} className={`p-3 rounded-2xl text-sm border ${a.risk === 'High'
+                  ? 'bg-red-100 border-red-100 text-red-800'
+                  : 'bg-orange-100 border-orange-100 text-orange-800'
+                  }`}>
                   <p className="font-bold">{a.condition}</p>
                   <p className={`text-xs mt-1 ${a.risk === 'High' ? 'text-red-600' : 'text-orange-600'}`}>
                     {a.date}
@@ -674,7 +677,7 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
       setCooldownRemaining(AI_COOLDOWN_MS - (now - lastAiCall));
       return;
     }
-    
+
     setLoading(true);
     setResult(null);
     setConversationContext('');
@@ -694,8 +697,8 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
     setLastAiCall(Date.now());
 
     try {
-      if (isUnsafeInput(symptomsText)){
-        const data=  {
+      if (isUnsafeInput(symptomsText)) {
+        const data = {
           topCondition: "Unable to assess safely",
           possibleConditions: [],
           advice: "I can't safely assist with that request. Please consult a medical professional.",
@@ -703,7 +706,7 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
           risk_level: "Medium",
           followUpQuestion: "Can you describe your symptoms in a safe and general way?"
         };
-          setResult(data);
+        setResult(data);
       } else {
         const data = await analyzeSymptoms(symptomsText, '');
         setResult(data);
@@ -725,7 +728,7 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
         // if (!data.isQuotaExceeded) {
         //   speak(data.advice);
         // }
-    }
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -790,19 +793,19 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-      <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">🩺 Symptom Analysis</h1>      
-      
+      <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">🩺 Symptom Analysis</h1>
+
       <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
         <div>
           <label className="block text-sm font-bold text-slate-700 mb-2">Describe how you feel</label>
           <div className="relative">
-            <textarea 
+            <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="e.g., I have a sharp pain in my lower back and I feel nauseous..."
               className="w-full h-32 p-4 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
             />
-            <button 
+            <button
               onClick={startListening}
               className={cn(
                 "absolute bottom-4 right-4 p-3 rounded-full transition-colors",
@@ -822,13 +825,13 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{ill.name}</p>
                 <div className="flex flex-wrap gap-2">
                   {ill.symptoms.map(s => (
-                    <button 
+                    <button
                       key={s}
                       onClick={() => toggleSymptom(s)}
                       className={cn(
                         "px-4 py-2 rounded-xl text-sm transition-all",
-                        selectedSymptoms.includes(s) 
-                          ? "bg-blue-600 text-white shadow-md shadow-blue-100" 
+                        selectedSymptoms.includes(s)
+                          ? "bg-blue-600 text-white shadow-md shadow-blue-100"
                           : "bg-slate-50 text-slate-600 hover:bg-slate-100"
                       )}
                     >
@@ -841,7 +844,7 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
           </div>
         </div>
 
-        <button 
+        <button
           onClick={() => handleAnalyze()}
           disabled={loading || (!input && selectedSymptoms.length === 0) || cooldownRemaining > 0}
           className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
@@ -858,11 +861,11 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
             <p className="font-bold text-blue-900">Quick Tip (Local Check)</p>
             <p className="text-sm text-blue-700">{localAdvice}</p>
             <br></br>
-            <button 
-              onClick={() => { 
+            <button
+              onClick={() => {
                 const deepText = input + " (analyze deeply)";
-                setInput(deepText); 
-                handleAnalyze(deepText); 
+                setInput(deepText);
+                handleAnalyze(deepText);
               }}
               className="text-xs font-bold text-blue-600 underline mt-2"
             >
@@ -899,12 +902,12 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
               <div key={i} className="space-y-1">
                 <div className="flex justify-between text-sm">
                   <span className={cn("font-medium", i === 0 ? "text-blue-600" : "text-slate-700")}>{c.name}</span>
-                  <span className="text-slate-400">{c.confidence*100}%</span>
+                  <span className="text-slate-400">{c.confidence * 100}%</span>
                 </div>
                 <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div
                     className={cn("h-2 rounded-full", i === 0 ? "bg-blue-500" : "bg-slate-300")}
-                    style={{ width: `${c.confidence*100}%` }}
+                    style={{ width: `${c.confidence * 100}%` }}
                   />
                 </div>
               </div>
@@ -931,7 +934,7 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
             </div>
           )}
 
-          <button 
+          <button
             onClick={() => speak(result.advice)}
             className="flex items-center gap-2 text-blue-600 font-bold hover:underline"
           >
@@ -971,30 +974,13 @@ function SymptomAnalyzer({ patientId }: { patientId?: string }) {
   );
 }
 
-function WoundAnalyzer({ patientId }: { patientId?: string }) {
-  const EXAMPLES = [
-    { 
-      title: 'Surgical Incision', 
-      url: 'https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&q=80&w=400',
-      description: 'Post-operative healing check'
-    },
-    { 
-      title: 'Minor Burn', 
-      url: '/dataset/burn/burn1.jpg',
-      description: 'Second-degree burn assessment'
-    },
-    { 
-      title: 'Skin Ulcer', 
-      url: 'https://skinkraft.com/cdn/shop/articles/Evidence-Based_93b65bc7-4f8f-4109-a218-d37fc00d93c6_1024x1024.jpg?v=1606210364',
-      description: 'Chronic wound monitoring'
-    },
-    { 
-      title: 'Skin Cut', 
-      url: 'dataset/cut/cut4.jpg',
-      description: 'Wound cut on skin'
-    }
-  ];
+const URGENCY_CONFIG = {
+  low: { icon: ShieldCheck, color: 'text-green-700', bg: 'bg-green-50', border: 'border-green-200', label: 'Low Urgency' },
+  moderate: { icon: Info, color: 'text-yellow-700', bg: 'bg-yellow-50', border: 'border-yellow-200', label: 'Moderate Urgency' },
+  high: { icon: AlertTriangle, color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200', label: 'Seek Care Soon' },
+};
 
+function WoundAnalyzer({ patientId, wound, onClose }: { patientId?: string; wound: typeof WOUND_EXAMPLES[0]; onClose: () => void; }) {
   const [customSlot, setCustomSlot] = useState<ImageSlot>({ file: null, preview: null });
   const [mode, setMode] = useState<AnalysisMode>('both');
   const [results, setResults] = useState<WoundResult[]>([]);
@@ -1002,8 +988,9 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
   const [pythonStatus, setPythonStatus] = useState<'online' | 'offline' | 'checking'>('checking');
   const [lastAiCall, setLastAiCall] = useState<number>(0);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
-  const [woundExplanation, setWoundExplanation] = useState('');
-  const [woundTodo, setWoundTodo] = useState('');
+  const [activeWound, setActiveWound] = useState<typeof WOUND_EXAMPLES[0] | null>(null);
+  const urgency = URGENCY_CONFIG[wound.info.urgencyLevel as keyof typeof URGENCY_CONFIG];
+  const UrgencyIcon = urgency.icon;
 
   const normalizeType = (type?: string) => {
     return type?.toLowerCase().trim() || "unknown";
@@ -1069,7 +1056,7 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
           body: JSON.stringify({ images: [base64] })
         });
         const data = await res.json();
-        pythonResult = data.results?.[0] || null;        
+        pythonResult = data.results?.[0] || null;
       } catch (err) {
         console.error('Python analysis failed:', err);
       }
@@ -1103,36 +1090,14 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
       addDoc(collection(db, 'wounds'), {
         patientID: patientId,
         imageIndex: slotIdx,
-        type: aiResult?.type || pythonResult?.type || 'Unknown', 
-        pythonType: pythonResult?.type || null, 
+        type: aiResult?.type || pythonResult?.type || 'Unknown',
+        pythonType: pythonResult?.type || null,
         pythonConfidence: pythonResult?.confidence || null,
         analysis: aiResult?.analysis || '',
         recommendations: aiResult?.recommendations || '',
         date: new Date().toISOString(),
         isExample: slotIdx < 100 // Example indices are 0, 1, 2. Custom is 100.
       }).catch(err => handleFirestoreError(err, OperationType.CREATE, 'wounds'));
-    }
-  };
-
-  const handleAnalyzeExample = async (index: number) => {
-    if (loading) return;
-    
-    const now = Date.now();
-    if (now - lastAiCall < AI_COOLDOWN_MS) {
-      setCooldownRemaining(AI_COOLDOWN_MS - (now - lastAiCall));
-      return;
-    }
-
-    setLoading(true);
-    setLastAiCall(now);
-    
-    try {
-      const base64 = await urlToBase64(EXAMPLES[index].url);
-      await runAnalysis(base64, 'image/jpeg', index, 'both');
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -1159,269 +1124,360 @@ function WoundAnalyzer({ patientId }: { patientId?: string }) {
   };
 
   return (
-    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8 pb-12">
-      <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">🩸 Wound Analysis</h1>
+    <div>
+      <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6 pb-12">
+        <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">🩸 Wound Analysis</h1>
 
-      <section className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600">
-            <Info size={18} />
-          </div>
-          <h2 className="text-xl font-bold text-slate-800">Wound Examples</h2>
-        </div>
-        <p className="text-slate-500 text-sm">See how the AI and Python models analyze different types of wounds.</p>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {EXAMPLES.map((ex, i) => (
-            <div key={i} className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-              <img src={ex.url} alt={ex.title} className="w-full h-48 object-cover" />
-              <div className="p-4 flex-1 flex flex-col gap-3">
-                <div>
-                  <h3 className="font-bold text-slate-800">{ex.title}</h3>
-                  <p className="text-xs text-slate-400">{ex.description}</p>
-                </div>
-                <button
-                  onClick={() => handleAnalyzeExample(i)}
-                  disabled={loading || cooldownRemaining > 0}
-                  className="mt-auto w-full py-2 rounded-xl bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-600 font-bold text-xs transition-all disabled:opacity-50"
-                >
-                  {loading ? 'Analyzing...' : 'Analyze Example'}
-                </button>
-              </div>
+        <section className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600">
+              <Info size={18} />
             </div>
-          ))}
-        </div>
-      </section>
-
-      <hr className="border-slate-200" />
-
-      <section className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center text-purple-600">
-            <Upload size={18} />
+            <h2 className="text-xl font-bold text-slate-800">Wound Reference Guide</h2>
           </div>
-          <h2 className="text-xl font-bold text-slate-800">Custom Analysis</h2>
-        </div>
+          <p className="text-slate-500 text-sm">
+            Tap any wound type to learn about its characteristics and care instructions.
+          </p>
 
-        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
-          {/* Analysis Mode Selector */}
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-3">Analysis Mode</label>
-            <div className="flex gap-3">
-              {(['ai', 'python', 'both'] as AnalysisMode[]).map(m => (
-                <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  className={cn(
-                    "flex-1 py-3 rounded-2xl font-bold text-sm transition-all border",
-                    mode === m
-                      ? "bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100"
-                      : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
-                  )}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            {WOUND_EXAMPLES.map((wound, i) => (
+              <button
+                key={i}
+                onClick={() => setActiveWound(wound)}
+                className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col text-left hover:shadow-md hover:border-blue-200 transition-all group"
+              >
+                <div className="relative overflow-hidden">
+                  <img
+                    src={wound.url}
+                    alt={wound.title}
+                    className="w-full h-36 object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                  <span className={cn('absolute bottom-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full', wound.badgeColor)}>
+                    {wound.badge}
+                  </span>
+                </div>
+                <div className="p-3 flex-1 flex flex-col gap-1">
+                  <h3 className="font-bold text-slate-800 text-sm leading-tight">{wound.title}</h3>
+                  <p className="text-[11px] text-slate-400 flex-1">{wound.description}</p>
+                  <span className="text-[11px] font-bold text-blue-500 group-hover:text-blue-700 transition-colors mt-1">
+                    View info →
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* {activeWound && (
+        <WoundAnalyzer wound={activeWound} onClose={() => setActiveWound(null)} />
+      )} */}
+
+        <hr className="border-slate-200" />
+
+        <section className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center text-purple-600">
+              <Upload size={18} />
+            </div>
+            <h2 className="text-xl font-bold text-slate-800">Custom Analysis</h2>
+          </div>
+
+          <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+            {/* Analysis Mode Selector */}
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-3">Analysis Mode</label>
+              <div className="flex gap-3">
+                {(['ai', 'python', 'both'] as AnalysisMode[]).map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setMode(m)}
+                    className={cn(
+                      "flex-1 py-3 rounded-2xl font-bold text-sm transition-all border",
+                      mode === m
+                        ? "bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100"
+                        : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                    )}
+                  >
+                    {m === 'ai' && '🤖 AI Only'}
+                    {m === 'python' && '🐍 Python Model'}
+                    {m === 'both' && '⚡ Both'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Python server status */}
+              {(mode === 'python' || mode === 'both') && (
+                <div className={cn(
+                  "mt-3 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-2",
+                  pythonStatus === 'online' ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
+                )}>
+                  <div className={cn("w-2 h-2 rounded-full", pythonStatus === 'online' ? "bg-green-500" : "bg-red-500")} />
+                  {pythonStatus === 'online' ? 'Online - Server running...' : 'Pending - Server loading, please wait for a while.. '}
+                </div>
+              )}
+            </div>
+
+            {/* Single Upload Slot */}
+            <div
+              className="border-2 border-dashed border-slate-200 rounded-3xl p-8 flex flex-col items-center justify-center gap-4 hover:border-blue-400 transition-colors cursor-pointer relative overflow-hidden"
+              onClick={() => document.getElementById('wound-upload-custom')?.click()}
+            >
+              {customSlot.preview ? (
+                <img src={customSlot.preview} alt="Custom wound" className="w-full h-64 object-cover rounded-2xl" />
+              ) : (
+                <>
+                  <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
+                    <Upload size={32} />
+                  </div>
+                  <div className="text-center">
+                    <p className="font-bold">Click to Upload Your Photo</p>
+                    <p className="text-sm text-slate-400">Take a clear picture of the wound</p>
+                  </div>
+                </>
+              )}
+              <input id="wound-upload-custom" type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+            </div>
+
+            <button
+              onClick={handleAnalyzeCustom}
+              disabled={loading || !customSlot.file || cooldownRemaining > 0 || (mode !== 'ai' && pythonStatus === 'offline')}
+              className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-lg shadow-blue-100"
+            >
+              {loading ? "Analyzing..." : cooldownRemaining > 0 ? `Wait ${Math.ceil(cooldownRemaining / 1000)}s` : "Analyze My Wound"}
+            </button>
+          </div>
+        </section>
+
+        {/* Results Display */}
+        {results.length > 0 && (
+          <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+              <CheckCircle2 size={24} className="text-green-500" />
+              Analysis Results
+            </h2>
+            <div className="grid grid-cols-1 gap-6">
+              {results.sort((a, b) => b.slotIndex - a.slotIndex).map((r) => (
+                <motion.div
+                  key={r.slotIndex}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl space-y-6"
                 >
-                  {m === 'ai' && '🤖 AI Only'}
-                  {m === 'python' && '🐍 Python Model'}
-                  {m === 'both' && '⚡ Both'}
-                </button>
+
+                  <div className={cn(
+                    "grid gap-6",
+                    r.aiResult && r.pythonResult ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1"
+                  )}>
+
+                    {/* Python Result */}
+                    {r.pythonResult && (() => {
+                      // 🔥 Normalize type safely
+                      const woundType = r.pythonResult.type?.toLowerCase().trim();
+
+                      // 🔗 Lookup mapping
+                      const explanation = WOUND_EXPLANATION[woundType] || "No description available.";
+                      const todo = WOUND_TODO[woundType] || "No care instructions available.";
+
+                      return (
+                        <div className="p-5 bg-purple-50 border border-purple-100 rounded-2xl space-y-4">
+
+                          {/* Header */}
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-bold text-purple-500 uppercase tracking-wider">
+                              🐍 Python Model
+                            </p>
+                            <RiskBadge
+                              level={
+                                r.pythonResult.confidence > 0.7
+                                  ? 'High'
+                                  : r.pythonResult.confidence > 0.4
+                                    ? 'Medium'
+                                    : 'Low'
+                              }
+                            />
+                          </div>
+
+                          {/* Main Result */}
+                          <div>
+                            <p className="text-2xl font-bold text-purple-900">
+                              {r.pythonResult.type.toUpperCase()}
+                            </p>
+                            <p className="text-sm text-purple-700 font-medium">
+                              Confidence: {(r.pythonResult.confidence).toFixed(1)}%
+                            </p>
+                          </div>
+
+                          {/* Score Bars */}
+                          <div className="space-y-2">
+                            {Object.entries(r.pythonResult.allScores).map(([label, score]) => (
+                              <div key={label} className="space-y-1">
+                                <div className="flex justify-between text-[10px] font-bold">
+                                  <span className="text-purple-700 uppercase">{label}</span>
+                                  <span className="text-purple-500">{(score).toFixed(0)}%</span>
+                                </div>
+                                <div className="h-2 bg-purple-100 rounded-full overflow-hidden">
+                                  <motion.div
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${score}%` }}
+                                    className="h-full bg-purple-500 rounded-full"
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* 🔥 Explanation + Action */}
+                          <div className="space-y-3">
+
+                            {/* Explanation */}
+                            <div className="p-3 bg-white rounded-xl border border-purple-100">
+                              <p className="text-xs font-bold text-purple-600 uppercase">
+                                Explanation
+                              </p>
+                              <p className="text-sm text-purple-900">
+                                {explanation}
+                              </p>
+                            </div>
+
+                            {/* What To Do */}
+                            <div className="p-3 bg-white rounded-xl border border-purple-100">
+                              <p className="text-xs font-bold text-purple-600 uppercase">
+                                What To Do
+                              </p>
+                              <p className="text-sm text-purple-900">
+                                {todo}
+                              </p>
+                            </div>
+
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* AI Result */}
+                    {r.aiResult && (
+                      <div className="p-5 bg-blue-50 border border-blue-100 rounded-2xl space-y-4">
+
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-bold text-blue-500 uppercase tracking-wider">
+                            🤖 AI Analysis
+                          </p>
+                          <RiskBadge level="Medium" />
+                        </div>
+
+                        <div>
+                          <p className="text-2xl font-bold text-blue-900">
+                            {r.aiResult.type}
+                          </p>
+                          <p className="text-sm text-blue-800 leading-relaxed">
+                            {r.aiResult.analysis}
+                          </p>
+                        </div>
+
+                        <div className="p-4 bg-white/60 rounded-xl border border-blue-100">
+                          <p className="text-xs font-bold text-blue-700 mb-2 uppercase tracking-wider">
+                            Care Recommendations
+                          </p>
+                          <p className="text-sm text-blue-900 italic">
+                            "{r.aiResult.recommendations}"
+                          </p>
+                        </div>
+
+                      </div>
+                    )}
+
+                  </div>
+                </motion.div>
               ))}
             </div>
-
-            {/* Python server status */}
-            {(mode === 'python' || mode === 'both') && (
-              <div className={cn(
-                "mt-3 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-2",
-                pythonStatus === 'online' ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
-              )}>
-                <div className={cn("w-2 h-2 rounded-full", pythonStatus === 'online' ? "bg-green-500" : "bg-red-500")} />
-                Python server: {pythonStatus === 'online' ? 'Running on localhost:5000' : 'Offline — run python_server.py'}
-              </div>
-            )}
           </div>
+        )}
+      </motion.div>
 
-          {/* Single Upload Slot */}
-          <div 
-            className="border-2 border-dashed border-slate-200 rounded-3xl p-8 flex flex-col items-center justify-center gap-4 hover:border-blue-400 transition-colors cursor-pointer relative overflow-hidden"
-            onClick={() => document.getElementById('wound-upload-custom')?.click()}
-          >
-            {customSlot.preview ? (
-              <img src={customSlot.preview} alt="Custom wound" className="w-full h-64 object-cover rounded-2xl" />
-            ) : (
-              <>
-                <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
-                  <Upload size={32} />
-                </div>
-                <div className="text-center">
-                  <p className="font-bold">Click to Upload Your Photo</p>
-                  <p className="text-sm text-slate-400">Take a clear picture of the wound</p>
-                </div>
-              </>
-            )}
-            <input id="wound-upload-custom" type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
-          </div>
+      <AnimatePresence>
+        {activeWound && (() => {
+          const urgency = URGENCY_CONFIG[activeWound.info.urgencyLevel as keyof typeof URGENCY_CONFIG];
+          const UrgencyIcon = urgency.icon;
 
-          <button
-            onClick={handleAnalyzeCustom}
-            disabled={loading || !customSlot.file || cooldownRemaining > 0 || (mode !== 'ai' && pythonStatus === 'offline')}
-            className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-lg shadow-blue-100"
-          >
-            {loading ? "Analyzing..." : cooldownRemaining > 0 ? `Wait ${Math.ceil(cooldownRemaining / 1000)}s` : "Analyze My Wound"}
-          </button>
-        </div>
-      </section>
-
-      {/* Results Display */}
-      {results.length > 0 && (
-        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
-          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-            <CheckCircle2 size={24} className="text-green-500" />
-            Analysis Results
-          </h2>
-          <div className="grid grid-cols-1 gap-6">
-            {results.sort((a, b) => b.slotIndex - a.slotIndex).map((r) => (
-              <motion.div 
-                key={r.slotIndex} 
-                initial={{ opacity: 0, y: 20 }} 
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl space-y-6"
+          return (
+            <motion.div
+              key="backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+              onClick={() => setActiveWound(null)}  // ✅ clears state, doesn't close parent
+            >
+              <motion.div
+                key="panel"
+                initial={{ opacity: 0, scale: 0.95, y: 16 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 16 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+                className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[88vh] overflow-y-auto"
+                onClick={e => e.stopPropagation()}
               >
-                <div className="flex items-center justify-between border-b border-slate-50 pb-4">
-                  <h3 className="font-bold text-slate-700">
-                    {r.slotIndex < 100 ? `Example: ${EXAMPLES[r.slotIndex].title}` : 'Custom Upload Result'}
-                  </h3>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    {new Date().toLocaleTimeString()}
+                <div className="relative">
+                  <img
+                    src={activeWound.url}        // ✅ activeWound, not wound
+                    alt={activeWound.title}
+                    className="w-full h-48 object-cover rounded-t-3xl"
+                  />
+                  <button
+                    onClick={() => setActiveWound(null)}  // ✅ clears state
+                    className="absolute top-3 right-3 w-8 h-8 bg-white/90 hover:bg-white rounded-full flex items-center justify-center shadow-md transition-colors"
+                  >
+                    <X size={16} className="text-slate-600" />
+                  </button>
+                  <span className={cn('absolute bottom-3 left-3 text-xs font-bold px-3 py-1 rounded-full', activeWound.badgeColor)}>
+                    {activeWound.badge}
                   </span>
                 </div>
 
-                <div className={cn(
-                  "grid gap-6",
-                  r.aiResult && r.pythonResult ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1"
-                )}>
-                  
-                  {/* Python Result */}
-                  {r.pythonResult && (() => {
-                    // 🔥 Normalize type safely
-                    const woundType = r.pythonResult.type?.toLowerCase().trim();
+                <div className="p-6 space-y-5">
+                  <div>
+                    <h2 className="text-2xl font-bold text-slate-800">{activeWound.title}</h2>
+                    <p className="text-sm text-slate-400 mt-0.5">{activeWound.description}</p>
+                  </div>
 
-                    // 🔗 Lookup mapping
-                    const explanation = WOUND_EXPLANATION[woundType] || "No description available.";
-                    const todo = WOUND_TODO[woundType] || "No care instructions available.";
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">About this wound</p>
+                    <p className="text-sm text-slate-700 leading-relaxed">{activeWound.info.what}</p>
+                  </div>
 
-                    return (
-                      <div className="p-5 bg-purple-50 border border-purple-100 rounded-2xl space-y-4">
-                        
-                        {/* Header */}
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-bold text-purple-500 uppercase tracking-wider">
-                            🐍 Python Model
-                          </p>
-                          <RiskBadge 
-                            level={
-                              r.pythonResult.confidence > 0.7
-                                ? 'High'
-                                : r.pythonResult.confidence > 0.4
-                                ? 'Medium'
-                                : 'Low'
-                            } 
-                          />
-                        </div>
+                  <div className="space-y-3">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">What to do</p>
+                    <ul className="space-y-2">
+                      {activeWound.info.todo.map((step, i) => (
+                        <li key={i} className="flex gap-3 text-sm text-slate-700">
+                          <span className="flex-shrink-0 w-5 h-5 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center text-[10px] font-bold mt-0.5">
+                            {i + 1}
+                          </span>
+                          {step}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
 
-                        {/* Main Result */}
-                        <div>
-                          <p className="text-2xl font-bold text-purple-900">
-                            {r.pythonResult.type.toUpperCase()}
-                          </p>
-                          <p className="text-sm text-purple-700 font-medium">
-                            Confidence: {(r.pythonResult.confidence).toFixed(1)}%
-                          </p>
-                        </div>
-
-                        {/* Score Bars */}
-                        <div className="space-y-2">
-                          {Object.entries(r.pythonResult.allScores).map(([label, score]) => (
-                            <div key={label} className="space-y-1">
-                              <div className="flex justify-between text-[10px] font-bold">
-                                <span className="text-purple-700 uppercase">{label}</span>
-                                <span className="text-purple-500">{(score).toFixed(0)}%</span>
-                              </div>
-                              <div className="h-2 bg-purple-100 rounded-full overflow-hidden">
-                                <motion.div 
-                                  initial={{ width: 0 }}
-                                  animate={{ width: `${score}%` }}
-                                  className="h-full bg-purple-500 rounded-full" 
-                                />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* 🔥 Explanation + Action */}
-                        <div className="space-y-3">
-                          
-                          {/* Explanation */}
-                          <div className="p-3 bg-white rounded-xl border border-purple-100">
-                            <p className="text-xs font-bold text-purple-600 uppercase">
-                              Explanation
-                            </p>
-                            <p className="text-sm text-purple-900">
-                              {explanation}
-                            </p>
-                          </div>
-
-                          {/* What To Do */}
-                          <div className="p-3 bg-white rounded-xl border border-purple-100">
-                            <p className="text-xs font-bold text-purple-600 uppercase">
-                              What To Do
-                            </p>
-                            <p className="text-sm text-purple-900">
-                              {todo}
-                            </p>
-                          </div>
-
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* AI Result */}
-                  {r.aiResult && (
-                    <div className="p-5 bg-blue-50 border border-blue-100 rounded-2xl space-y-4">
-                      
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-bold text-blue-500 uppercase tracking-wider">
-                          🤖 AI Analysis
-                        </p>
-                        <RiskBadge level="Medium" />
-                      </div>
-
-                      <div>
-                        <p className="text-2xl font-bold text-blue-900">
-                          {r.aiResult.type}
-                        </p>
-                        <p className="text-sm text-blue-800 leading-relaxed">
-                          {r.aiResult.analysis}
-                        </p>
-                      </div>
-
-                      <div className="p-4 bg-white/60 rounded-xl border border-blue-100">
-                        <p className="text-xs font-bold text-blue-700 mb-2 uppercase tracking-wider">
-                          Care Recommendations
-                        </p>
-                        <p className="text-sm text-blue-900 italic">
-                          "{r.aiResult.recommendations}"
-                        </p>
-                      </div>
-
+                  <div className={cn('flex gap-3 p-4 rounded-2xl border text-sm', urgency.bg, urgency.border)}>
+                    <UrgencyIcon size={18} className={cn('flex-shrink-0 mt-0.5', urgency.color)} />
+                    <div>
+                      <p className={cn('font-bold text-xs uppercase tracking-wider mb-1', urgency.color)}>{urgency.label}</p>
+                      <p className={cn('text-sm', urgency.color)}>{activeWound.info.urgency}</p>
                     </div>
-                  )}
+                  </div>
 
+                  <p className="text-[10px] text-slate-400 text-center leading-relaxed">
+                    This information is for general guidance only and does not replace professional medical advice.
+                    Always consult a qualified healthcare provider for diagnosis and treatment.
+                  </p>
                 </div>
               </motion.div>
-            ))}
-          </div>
-        </div>
-      )}
-    </motion.div>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -1465,7 +1521,7 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
 
     // Minimize AI usage: Simple check for normal status
     if (mood === '😊 Happy' || !vitals || vitals.toLowerCase().includes('normal')) {
-    setLoading(true); 
+      setLoading(true);
       const localResult = {
         risk_detected: false,
         assessment: "You're doing great! Keep up the positive mood and healthy habits.",
@@ -1501,7 +1557,7 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
 
   const saveCheckIn = async (data: any) => {
     if (!patient) return;
-    
+
     const dateKey = getMalaysiaDateKey();
     const docId = `${patient.id}_${dateKey}`;
     const now = getMalaysiaISOString();
@@ -1531,7 +1587,7 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
       <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">👴👵 Elderly Check-In</h1>
-      
+
       <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
         {/* <h2 className="text-xl font-bold flex items-center gap-2">Daily Check-In</h2> */}
         <div className="p-4 bg-blue-50 rounded-2xl flex items-center justify-between">
@@ -1542,8 +1598,8 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
               <p className="text-xs text-blue-700">Alerts sent if not checked in by this time.</p>
             </div>
           </div>
-          <input 
-            type="time" 
+          <input
+            type="time"
             value={deadline}
             onChange={(e) => {
               setDeadline(e.target.value);
@@ -1558,7 +1614,7 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
             <label className="block text-sm font-bold text-slate-700 mb-2">How are you feeling today? (Mood)</label>
             <div className="flex gap-4">
               {['😊 Happy', '😐 Neutral', '😔 Sad', '😫 Tired'].map(m => (
-                <button 
+                <button
                   key={m}
                   onClick={() => setMood(m)}
                   className={cn(
@@ -1574,7 +1630,7 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
 
           <div>
             <label className="block text-sm font-bold text-slate-700 mb-2">Vitals & Health Notes</label>
-            <textarea 
+            <textarea
               value={vitals}
               onChange={(e) => setVitals(e.target.value)}
               placeholder="e.g., Blood pressure: 120/80, Heart rate: 72. Feeling slightly dizzy this morning."
@@ -1583,7 +1639,7 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
           </div>
         </div>
 
-        <button 
+        <button
           onClick={handleSubmit}
           disabled={loading || !mood || cooldownRemaining > 0}
           className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all"
@@ -1593,13 +1649,13 @@ function ElderlyCheckIn({ patient, onUpdateDeadline }: { patient: Patient | null
       </div>
 
       {result && (
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }} 
-          animate={{ opacity: 1, scale: 1 }} 
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
           className={cn(
             "p-8 rounded-3xl border shadow-xl space-y-4",
-            result.isQuotaExceeded ? "bg-amber-50 border-amber-200" : 
-            result.risk_detected ? "bg-red-50 border-red-100" : "bg-green-50 border-green-100"
+            result.isQuotaExceeded ? "bg-amber-50 border-amber-200" :
+              result.risk_detected ? "bg-red-50 border-red-100" : "bg-green-50 border-green-100"
           )}
         >
           {result.isQuotaExceeded && (
@@ -1677,7 +1733,7 @@ function getDistance(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, onProfile: () => void, onUpdate: (updates: Partial<Patient>) => void}) {
+function EmergencyTab({ patient, onProfile, onUpdate }: { patient: Patient | null, onProfile: () => void, onUpdate: (updates: Partial<Patient>) => void }) {
   const [emergencyData, setEmergencyData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [showConfirm999, setShowConfirm999] = useState(false);
@@ -1691,7 +1747,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
   const [phone, setPhone] = useState(patient?.phone || "");
   const [showCallNotif, setShowCallNotif] = useState(false);
   const [showSmsNotif, setShowSmsNotif] = useState(false);
-  
+
   // For blood type (semilar to Profile)
   useEffect(() => {
     if (patient) {
@@ -1699,7 +1755,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
     }
   }, [patient?.id, patient?.bloodType]);
 
-  const updateBloodType = async (newBloodType : string) => {
+  const updateBloodType = async (newBloodType: string) => {
     if (!patient) return;
 
     const patientData = doc(db, 'users', patient.id);
@@ -1724,23 +1780,23 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
 
   // Common emergencies
   const emergencies = [
-    { 
-      title: "Heart Attack", 
+    {
+      title: "Heart Attack",
       advice: "1. Call 999 immediately. \n2. Chew aspirin if not allergic. \n3. Sit and stay calm. \n4. Loosen clothing.\n5. Apply CPR if losing pulse",
-      video: "/videos/heart_attack.mp4" 
+      video: "/videos/heart_attack.mp4"
     },
-    { 
-      title: "Seizure", 
+    {
+      title: "Seizure",
       advice: "1. Cushion head. \n2. Loosen tight clothing. \n3. Turn on side. \n4. Do NOT put anything in mouth. \n5. Time the seizure.",
       video: "/videos/seizure.mp4"
     },
-    { 
-      title: "Asthma Attack", 
+    {
+      title: "Asthma Attack",
       advice: "1. Sit upright. \n2. Take slow, steady breaths. \n3. Use inhaler (blue). \n4. Seek help if no improvement.",
       video: "/videos/asthma.mp4"
     },
-    { 
-      title: "Allergic Reaction", 
+    {
+      title: "Allergic Reaction",
       advice: "1. Use EpiPen if available. \n2. Call emergency services. \n3. Lay flat with legs raised. \n4. Monitor breathing.",
       video: "/videos/allergy.mp4"
     },
@@ -1767,7 +1823,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
         if (err.code === 1) msg = "Location access denied. Please enable GPS/Location permissions in your browser settings.";
         else if (err.code === 2) msg = "Location unavailable. Please check your signal.";
         else if (err.code === 3) msg = "Location request timed out.";
-        
+
         setLocationError(msg);
         setLoading(false);
         return;
@@ -1819,9 +1875,9 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
           return { name, type, distance, eta, phone: el.tags?.phone || el.tags?.["contact:phone"] };
         }).filter(Boolean);
 
-        const hospitals = all.filter((f:any) => f.type === "hospital").sort((a:any, b:any) => a.distance - b.distance).slice(0, 5);
-        const clinics = all.filter((f:any) => f.type === "clinic").sort((a:any, b:any) => a.distance - b.distance).slice(0, 3);
-        const pharmacies = all.filter((f:any) => f.type === "pharmacy").sort((a:any, b:any) => a.distance - b.distance).slice(0, 3);
+        const hospitals = all.filter((f: any) => f.type === "hospital").sort((a: any, b: any) => a.distance - b.distance).slice(0, 5);
+        const clinics = all.filter((f: any) => f.type === "clinic").sort((a: any, b: any) => a.distance - b.distance).slice(0, 3);
+        const pharmacies = all.filter((f: any) => f.type === "pharmacy").sort((a: any, b: any) => a.distance - b.distance).slice(0, 3);
 
         setEmergencyData({ hospitals, clinics, pharmacies });
       }
@@ -1855,31 +1911,31 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
 
   // Get current location for SMS purpose
   const getLocation = () => {
-      return new Promise<{lat:number, lng:number}>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            resolve({
-              lat: pos.coords.latitude,
-              lng: pos.coords.longitude
-            });
-          },
-          (err) => reject(err)
-        );
-      });
-    };
-  
-    const fetchLocation = async () => {
-      try {
-        const loc = await getLocation();
-        console.log(loc);
-      } catch (err) {
-        console.error(err);
-      }
-    };
-  
-    useEffect(() => {
-      fetchLocation();
-    }, []);
+    return new Promise<{ lat: number, lng: number }>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          resolve({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude
+          });
+        },
+        (err) => reject(err)
+      );
+    });
+  };
+
+  const fetchLocation = async () => {
+    try {
+      const loc = await getLocation();
+      console.log(loc);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    fetchLocation();
+  }, []);
 
   // When user clicks 'Request Help for XXX' button
   const triggerEmergency = async (situation: string) => {
@@ -1914,9 +1970,9 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
     try {
       let severity = "High";
       const s = situation.toLowerCase();
-      if (s.includes("allergic")) 
+      if (s.includes("allergic"))
         severity = "Medium";
-      else if (s.includes("asthma") || s.includes("seizure") || s.includes("heart")) 
+      else if (s.includes("asthma") || s.includes("seizure") || s.includes("heart"))
         severity = "Critical";
 
       const overpassQuery = `
@@ -2007,10 +2063,10 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
       cacheRef.current = { lat, lng, timestamp: now, data: newData };
     } catch (err) {
       console.error("OSM fetch error:", err);
-      setEmergencyData({ 
-        severity: "Unknown", 
-        facilities: [], 
-        instructions: "The medical facility search service is currently busy. Please call emergency services (999) directly for immediate help." 
+      setEmergencyData({
+        severity: "Unknown",
+        facilities: [],
+        instructions: "The medical facility search service is currently busy. Please call emergency services (999) directly for immediate help."
       });
     } finally {
       setLoading(false);
@@ -2021,6 +2077,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
   const handleCall999 = () => {
     setShowConfirm999(false);
     setShowAmbulanceNotif(true);
+    window.location.href = 'tel:999';
     setShowPatientInfo(true);
   };
 
@@ -2030,7 +2087,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
       {/* Ambulance Notification */}
       <AnimatePresence>
         {showAmbulanceNotif && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: -20, x: 20 }}
             animate={{ opacity: 1, y: 0, x: 0 }}
             exit={{ opacity: 0, scale: 0.9 }}
@@ -2109,13 +2166,13 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
           )}
         </div>
       </div>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {emergencies.map(e => (
           <div key={e.title} className="bg-white p-6 rounded-3xl border border-red-100 shadow-sm space-y-4">
             <h2 className="text-xl font-bold text-red-600">{e.title}</h2>
             <p className="text-sm text-slate-600 line-clamp-2">{e.advice}</p>
-            <button 
+            <button
               onClick={() => setSelectedEmergency(e)}
               className="w-full bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition-colors"
             >
@@ -2127,58 +2184,58 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
 
       {/* Medical Facilities Side Panel */}
       <AnimatePresence>
-          {showCallNotif && (
-            <motion.div
-              initial={{ opacity: 0, y: -20, x: 20 }}
-              animate={{ opacity: 1, y: 0, x: 0 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="fixed top-4 right-4 z-[60] bg-red-600 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-4 max-w-xs border-2 border-white"
-            >
-              <div className="bg-white/20 p-2 rounded-full animate-pulse">
-                <Phone size={24} />
-              </div>
-              <div className="flex-1">
-                <p className="font-bold text-sm">Calling Emergency Contact</p>
-                <p className="text-[10px] opacity-90">Dialing {emergencyContact}...</p>
-              </div>
-              <button onClick={() => setShowCallNotif(false)} className="p-1 hover:bg-white/10 rounded-lg">
-                <X size={18} />
-              </button>
-            </motion.div>
-          )}
+        {showCallNotif && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, x: 20 }}
+            animate={{ opacity: 1, y: 0, x: 0 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="fixed top-4 right-4 z-[60] bg-red-600 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-4 max-w-xs border-2 border-white"
+          >
+            <div className="bg-white/20 p-2 rounded-full animate-pulse">
+              <Phone size={24} />
+            </div>
+            <div className="flex-1">
+              <p className="font-bold text-sm">Calling Emergency Contact</p>
+              <p className="text-[10px] opacity-90">Dialing {emergencyContact}...</p>
+            </div>
+            <button onClick={() => setShowCallNotif(false)} className="p-1 hover:bg-white/10 rounded-lg">
+              <X size={18} />
+            </button>
+          </motion.div>
+        )}
 
-          {showSmsNotif && (
-            <motion.div
-              initial={{ opacity: 0, y: -20, x: 20 }}
-              animate={{ opacity: 1, y: 0, x: 0 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="fixed top-4 right-4 z-[60] bg-blue-600 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-4 max-w-xs border-2 border-white"
-            >
-              <div className="bg-white/20 p-2 rounded-full animate-pulse">
-                <MessageCircle size={24} />
-              </div>
-              <div className="flex-1">
-                <p className="font-bold text-sm">SMS Prepared</p>
-                <p className="text-[10px] opacity-90">Opening message to {emergencyContact}...</p>
-              </div>
-              <button onClick={() => setShowSmsNotif(false)} className="p-1 hover:bg-white/10 rounded-lg">
-                <X size={18} />
-              </button>
-            </motion.div>
-          )}
+        {showSmsNotif && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, x: 20 }}
+            animate={{ opacity: 1, y: 0, x: 0 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="fixed top-4 right-4 z-[60] bg-blue-600 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-4 max-w-xs border-2 border-white"
+          >
+            <div className="bg-white/20 p-2 rounded-full animate-pulse">
+              <MessageCircle size={24} />
+            </div>
+            <div className="flex-1">
+              <p className="font-bold text-sm">SMS Prepared</p>
+              <p className="text-[10px] opacity-90">Opening message to {emergencyContact}...</p>
+            </div>
+            <button onClick={() => setShowSmsNotif(false)} className="p-1 hover:bg-white/10 rounded-lg">
+              <X size={18} />
+            </button>
+          </motion.div>
+        )}
         {showFacilitiesPanel && (
           <>
             {/* Backdrop */}
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowFacilitiesPanel(false)}
               className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[70]"
             />
-            
+
             {/* Panel */}
-            <motion.div 
+            <motion.div
               initial={{ x: '100%' }}
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
@@ -2191,7 +2248,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
                   <h2 className="text-xl font-bold">Nearby Facilities</h2>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button 
+                  <button
                     onClick={() => searchNearbyFacilities(true)}
                     disabled={loading}
                     className="p-2 hover:bg-white/10 rounded-full transition-colors disabled:opacity-50"
@@ -2199,7 +2256,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
                   >
                     <Activity size={20} className={loading ? "animate-spin" : ""} />
                   </button>
-                  <button 
+                  <button
                     onClick={() => setShowFacilitiesPanel(false)}
                     className="p-2 hover:bg-white/10 rounded-full transition-colors"
                   >
@@ -2229,7 +2286,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
                     <div className="space-y-4">
                       <h3 className="font-bold text-red-600 flex items-center gap-2 sticky top-0 bg-white py-2 z-10">🏥 Hospitals (Top 5)</h3>
                       <div className="grid grid-cols-1 gap-4">
-                        {emergencyData.hospitals.map((h:any, i:number) => (
+                        {emergencyData.hospitals.map((h: any, i: number) => (
                           <FacilityCard key={i} facility={h} color="red" />
                         ))}
                       </div>
@@ -2239,7 +2296,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
                     <div className="space-y-4">
                       <h3 className="font-bold text-blue-600 flex items-center gap-2 sticky top-0 bg-white py-2 z-10">🩺 Clinics (Top 3)</h3>
                       <div className="grid grid-cols-1 gap-4">
-                        {emergencyData.clinics.map((h:any, i:number) => (
+                        {emergencyData.clinics.map((h: any, i: number) => (
                           <FacilityCard key={i} facility={h} color="blue" />
                         ))}
                       </div>
@@ -2249,7 +2306,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
                     <div className="space-y-4">
                       <h3 className="font-bold text-green-600 flex items-center gap-2 sticky top-0 bg-white py-2 z-10">💊 Pharmacies (Top 3)</h3>
                       <div className="grid grid-cols-1 gap-4">
-                        {emergencyData.pharmacies.map((h:any, i:number) => (
+                        {emergencyData.pharmacies.map((h: any, i: number) => (
                           <FacilityCard key={i} facility={h} color="green" />
                         ))}
                       </div>
@@ -2274,7 +2331,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
       <AnimatePresence>
         {selectedEmergency && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
@@ -2282,19 +2339,19 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
             >
               <div className="p-6 border-b flex items-center justify-between bg-red-600 text-white">
                 <h2 className="text-2xl font-bold">{selectedEmergency.title} Instructions</h2>
-                <button 
+                <button
                   onClick={() => setSelectedEmergency(null)}
                   className="p-2 hover:bg-white/10 rounded-full transition-colors"
                 >
                   <X size={24} />
                 </button>
               </div>
-              
+
               <div className="p-6 overflow-y-auto space-y-6">
                 <div className="aspect-video bg-slate-900 rounded-2xl overflow-hidden shadow-inner relative group">
-                  <video 
-                    src={"/videos/"+selectedEmergency.title.toLowerCase().split(" ").join("_") + ".mp4"} 
-                    autoPlay 
+                  <video
+                    src={"/videos/" + selectedEmergency.title.toLowerCase().split(" ").join("_") + ".mp4"}
+                    autoPlay
                     loop
                     playsInline
                     className="w-full h-full object-cover"
@@ -2314,7 +2371,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
                 </div>
 
                 <div className="flex gap-4">
-                  <button 
+                  <button
                     onClick={() => {
                       setSelectedEmergency(null);
                       setShowConfirm999(true);
@@ -2323,7 +2380,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
                   >
                     🆘 Call 999 Now
                   </button>
-                  <button 
+                  <button
                     onClick={() => setSelectedEmergency(null)}
                     className="flex-1 bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold hover:bg-slate-200 transition-all"
                   >
@@ -2340,7 +2397,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
       <AnimatePresence>
         {showConfirm999 && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
@@ -2354,13 +2411,13 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
                 <p className="text-slate-600">This will initiate a call to emergency services (999). Only use this for real life-threatening emergencies.</p>
               </div>
               <div className="flex flex-col gap-3">
-                <button 
+                <button
                   onClick={handleCall999}
                   className="w-full bg-red-600 text-white py-4 rounded-2xl font-black text-xl shadow-lg hover:bg-red-700 transition-all"
                 >
                   YES, CALL 999
                 </button>
-                <button 
+                <button
                   onClick={() => setShowConfirm999(false)}
                   className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold hover:bg-slate-200 transition-all"
                 >
@@ -2376,7 +2433,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
       <AnimatePresence>
         {showPatientInfo && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div 
+            <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 20, opacity: 0 }}
@@ -2400,8 +2457,8 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
                 <div className="grid grid-cols-2 md:grid-cols-2 gap-6">
                   <div>
                     <label className="flex text-sm font-bold text-slate-700 mb-1">Patient Name</label>
-                    <input 
-                      type="name" 
+                    <input
+                      type="name"
                       value={patient?.name ?? ''}
                       onChange={(e) => setPhone(e.target.value)}
                       className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
@@ -2411,8 +2468,8 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
 
                   <div>
                     <label className="flex text-sm font-bold text-slate-700 mb-1">Patient Age</label>
-                    <input 
-                      type="age" 
+                    <input
+                      type="age"
                       value={patient?.age ?? 20}
                       onChange={(e) => setPhone(e.target.value)}
                       className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
@@ -2423,8 +2480,8 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
 
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">Emergency Contact Number</label>
-                  <input 
-                    type="tel" 
+                  <input
+                    type="tel"
                     value={patient?.emergencyContact ?? ''}
                     onChange={(e) => setPhone(e.target.value)}
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
@@ -2457,7 +2514,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
 
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">Medical Conditions</label>
-                  <textarea 
+                  <textarea
                     value={patient?.conditions ?? ''}
                     onChange={(e) => setConditions(e.target.value)}
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none h-24"
@@ -2466,7 +2523,7 @@ function EmergencyTab({patient, onProfile, onUpdate}:{patient:Patient | null, on
                 </div>
               </div>
 
-              <button 
+              <button
                 onClick={() => setShowPatientInfo(false)}
                 className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg hover:bg-blue-700 transition-all"
               >
@@ -2487,7 +2544,7 @@ function FacilityCard({ facility, color }: { facility: any, color: 'red' | 'blue
     blue: "bg-blue-50 border-blue-100 text-blue-900",
     green: "bg-green-50 border-green-100 text-green-900"
   };
-  
+
   const btnClasses = {
     red: "bg-red-600 hover:bg-red-700",
     blue: "bg-blue-600 hover:bg-blue-700",
@@ -2511,9 +2568,9 @@ function FacilityCard({ facility, color }: { facility: any, color: 'red' | 'blue
           <span>Est. {facility.eta} mins</span>
         </div>
       </div>
-      
+
       {facility.phone ? (
-        <a 
+        <a
           href={`tel:${facility.phone}`}
           className={cn("w-full text-center text-white py-2 rounded-xl text-xs font-bold transition-all", btnClasses[color])}
         >
@@ -2529,12 +2586,12 @@ function FacilityCard({ facility, color }: { facility: any, color: 'red' | 'blue
 }
 
 function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: (updates: Partial<Patient>) => void }) {
-  
+
   const [aiStatus, setAiStatus] = useState<'online' | 'offline' | 'checking' | null>(null);
   const [bloodType, setBloodType] = useState<string>(patient?.bloodType || "");
   const [forceCheckIn, setforceCheckIn] = useState<boolean>(patient?.forceCheckIn || false);
   const [isEnabled, setIsEnabled] = useState<boolean>(patient?.forceCheckIn || false);
-  
+
   useEffect(() => {
     if (patient) {
       setBloodType(patient.bloodType || "");
@@ -2561,11 +2618,11 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
   };
 
   const handleToggle = async () => {
-  const next = !isEnabled;
-  setIsEnabled(next);
-  onUpdate({ forceCheckIn: next });
-  await saveCheckInSetting(next);
-};
+    const next = !isEnabled;
+    setIsEnabled(next);
+    onUpdate({ forceCheckIn: next });
+    await saveCheckInSetting(next);
+  };
 
   const saveCheckInSetting = async (checkInSetting: boolean) => {
     if (!patient) return;
@@ -2594,17 +2651,17 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
       <h1 className="bg-white-600 text-black text-3xl px-5 py-4 rounded-xl font-bold shadow-md">⚙️ Profile & Profile</h1>
-      
+
       <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm space-y-8">
         <div className="flex items-center gap-6">
           <div className="w-24 h-24 bg-blue-100 rounded-3xl flex items-center justify-center text-blue-600 text-3xl font-bold">
             {patient.name.charAt(0)}
           </div>
           <div className="flex-1">
-            <EditableField 
-              label="Full Name" 
-              value={patient.name} 
-              onSave={(val) => onUpdate({ name: val })} 
+            <EditableField
+              label="Full Name"
+              value={patient.name}
+              onSave={(val) => onUpdate({ name: val })}
               className="text-2xl font-bold"
             />
             <p className="text-slate-500">Patient ID: {patient.id}</p>
@@ -2613,40 +2670,40 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
 
         <h3 className="font-bold mb-4">Personal Details</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <EditableField 
-            label="Age" 
-            value={patient.age.toString()} 
+          <EditableField
+            label="Age"
+            value={patient.age.toString()}
             onSave={(val) => onUpdate({ age: parseInt(val) })} />
-          <EditableField 
-            label="Contact Number" 
-            value={patient.contact} 
+          <EditableField
+            label="Contact Number"
+            value={patient.contact}
             onSave={(val) => onUpdate({ contact: val })} />
-          <EditableField 
-            label="Emergency Contact" 
-            value={patient.emergencyContact} 
+          <EditableField
+            label="Emergency Contact"
+            value={patient.emergencyContact}
             onSave={(val) => onUpdate({ emergencyContact: val })} />
-          <EditableField 
-            label="Address" 
-            value={patient.address} 
+          <EditableField
+            label="Address"
+            value={patient.address}
             onSave={(val) => onUpdate({ address: val })} />
         </div>
 
         <h3 className="font-bold mb-4">Medical Details</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="pt-6 border-t border-slate-100">
-          <EditableField 
-            label="Medical Conditions" 
-            value={patient.conditions} 
-            onSave={(val) => onUpdate({ conditions: val })} 
-            className="text-sm"
-          />
+            <EditableField
+              label="Medical Conditions"
+              value={patient.conditions}
+              onSave={(val) => onUpdate({ conditions: val })}
+              className="text-sm"
+            />
           </div>
-          
+
           <div className="pt-6 border-t border-slate-100">
-            <EditableField 
-              label="Allergies" 
-              value={patient.allergy} 
-              onSave={(val) => onUpdate({ allergy: val })} 
+            <EditableField
+              label="Allergies"
+              value={patient.allergy}
+              onSave={(val) => onUpdate({ allergy: val })}
               className="text-sm"
             />
           </div>
@@ -2656,7 +2713,7 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
               Blood Type
             </label>
 
-            <select 
+            <select
               value={patient.bloodType}
               onChange={(e) => {
                 const val = e.target.value;
@@ -2689,7 +2746,7 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
               <div className="flex items-center gap-3">
                 {aiStatus === 'online' && <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-lg">ONLINE</span>}
                 {aiStatus === 'offline' && <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded-lg">QUOTA FULL</span>}
-                <button 
+                <button
                   onClick={checkAiStatus}
                   disabled={aiStatus === 'checking'}
                   className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition-all"
@@ -2701,28 +2758,26 @@ function ProfileTab({ patient, onUpdate }: { patient: Patient | null, onUpdate: 
           </div>
         </div>
 
-        <div className="pt-6 border-t border-slate-100"> 
-          <h3 className="font-bold mb-4">Features</h3> 
-          <div className="space-y-4"> 
+        <div className="pt-6 border-t border-slate-100">
+          <h3 className="font-bold mb-4">Features</h3>
+          <div className="space-y-4">
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
-              <div> 
-                <p className="font-bold">Daily Check-In Reminder</p> 
-                <p className="text-xs text-slate -400">Set daily check-in to compulsory</p> 
-              </div> 
+              <div>
+                <p className="font-bold">Daily Check-In Reminder</p>
+                <p className="text-xs text-slate -400">Set daily check-in to compulsory</p>
+              </div>
               <div
                 onClick={handleToggle}
-                className={`w-12 h-6 rounded-full relative cursor-pointer transition ${
-                  isEnabled ? "bg-blue-600" : "bg-gray-300"
-                }`}
+                className={`w-12 h-6 rounded-full relative cursor-pointer transition ${isEnabled ? "bg-blue-600" : "bg-gray-300"
+                  }`}
               >
                 <div
-                  className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition ${
-                    isEnabled ? "right-1" : "left-1"
-                  }`}
+                  className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition ${isEnabled ? "right-1" : "left-1"
+                    }`}
                 ></div>
               </div>
-            </div> 
-        </div> 
+            </div>
+          </div>
         </div>
       </div>
     </motion.div>
@@ -2743,7 +2798,7 @@ function EditableField({ label, value, onSave, className }: { label: string, val
       <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">{label}</p>
       {isEditing ? (
         <div className="flex items-center gap-2">
-          <input 
+          <input
             autoFocus
             value={tempValue}
             onChange={(e) => setTempValue(e.target.value)}
@@ -2755,7 +2810,7 @@ function EditableField({ label, value, onSave, className }: { label: string, val
       ) : (
         <div className="flex items-center justify-between">
           <p className={cn("font-semibold text-slate-700", className)}>{value}</p>
-          <button 
+          <button
             onClick={() => setIsEditing(true)}
             className="opacity-0 group-hover:opacity-100 p-1 text-blue-600 hover:bg-blue-50 rounded-md transition-all"
           >
