@@ -301,27 +301,28 @@ export const analyzeWound = async (base64Image: string, mimeType: string) => {
 
     return {
       type,
-      analysis:
-        `${analysis}\n\n` +
-        `📍 Objects detected: ${objects}\n` +
-        `🎨 Dominant colors: ${dominantColors}\n` +
-        `🏥 Medical content likelihood: ${safeSearch.medical}`,
+      analysis,           // just the clinical description, nothing else
       recommendations,
+      meta: {
+        objects,
+        dominantColors,
+        medicalLikelihood: safeSearch.medical,
+      }
     };
 
-    } catch (error: any) {
-      if (
-        error.message?.includes("429") ||
-        error.message?.toLowerCase().includes("quota")
-      ) {
-        return {
-          type: "Unknown",
-          analysis: "Vision API quota exceeded.",
-          recommendations: QUOTA_ERROR_MESSAGE,
-          isQuotaExceeded: true,
-        };
-      }
-      console.error("Wound Analysis (Vision API) Error:", error);
-      throw error;
+  } catch (error: any) {
+    if (
+      error.message?.includes("429") ||
+      error.message?.toLowerCase().includes("quota")
+    ) {
+      return {
+        type: "Unknown",
+        analysis: "Vision API quota exceeded.",
+        recommendations: QUOTA_ERROR_MESSAGE,
+        isQuotaExceeded: true,
+      };
     }
-  };
+    console.error("Wound Analysis (Vision API) Error:", error);
+    throw error;
+  }
+};
