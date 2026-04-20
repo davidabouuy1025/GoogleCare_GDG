@@ -61,7 +61,7 @@ import {
   User as FirebaseUser
 } from 'firebase/auth';
 import { db, auth } from './firebase';
-import { analyzeSymptoms, checkInElderly, analyzeWound } from './services/aiService';
+import { analyzeSymptoms, checkInElderly, analyzeWound, predictEmergency } from './services/aiService';
 import { COMMON_CAUSES } from './DATA_SYMPTOM/COMMON_CAUSES';
 import { WOUND_EXPLANATION } from './DATA_WOUND/WOUND_EXPLANATION';
 import { WOUND_TODO } from './DATA_WOUND/WOUND_TODO';
@@ -1086,8 +1086,7 @@ function WoundAnalyzer({ patientId, wound, onClose }: { patientId?: string; woun
       return
     }
 
-
-    console.log(patientId, slotIdx, aiResult?.type, pythonResult?.type, aiResult?.analysis, aiResult?.recommendations)
+    // console.log(patientId, slotIdx, aiResult?.type, pythonResult?.type, aiResult?.analysis, aiResult?.recommendations)
 
     // Save to Firestore
     if (patientId && (aiResult || pythonResult)) {
@@ -1805,6 +1804,52 @@ function EmergencyTab({ patient, onProfile, onUpdate }: { patient: Patient | nul
   const [phone, setPhone] = useState(patient?.phone || "");
   const [showCallNotif, setShowCallNotif] = useState(false);
   const [showSmsNotif, setShowSmsNotif] = useState(false);
+  const [symptomHistory, setSymptomHistory] = useState<any[]>([]);
+  const [predictCondition, setPredictCondition] = useState<any>([]);
+  const [hasAnalyzed, setHasAnalyzed] = useState(false);
+  const analysisInProgress = useRef(false);
+
+  useEffect(() => {
+    if (!patient?.id) return;
+
+    const q = query(
+      collection(db, 'symptoms'),
+      where('patientID', '==', patient.id),
+      orderBy('date', 'desc'),
+      // limit(5)
+    );
+
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setSymptomHistory(snap.docs.map(d => ({
+        condition: d.data().topCondition || d.data().Symptom,
+        date: new Date(d.data().date).toLocaleDateString()
+      })));
+    }, (err) => console.error('Symptom history error:', err));
+    return () => unsubscribe();
+  }, [patient?.id]);
+
+  useEffect(() => {
+    const runAnalysis = async () => {
+      // Check the lock and check if we have data
+      if (symptomHistory.length > 0 && !analysisInProgress.current) {
+
+        analysisInProgress.current = true;
+
+        let symptomList = null;
+        symptomList = JSON.stringify(symptomHistory)
+
+        try {
+          const result = await predictEmergency(symptomHistory);
+          console.log("Predicted Emergency Conditions: " + result);
+          setPredictCondition(result);
+        } catch (err) {
+          console.error("AI Analysis failed", err);
+          analysisInProgress.current = false; // Unlock on error to allow retry
+        }
+      }
+    };
+    runAnalysis();
+  }, [symptomHistory]);
 
   // For blood type (semilar to Profile)
   useEffect(() => {
@@ -2131,11 +2176,14 @@ function EmergencyTab({ patient, onProfile, onUpdate }: { patient: Patient | nul
     }
   };
 
+  let aiResult = null;
+
   // Call 999
   const handleCall999 = () => {
     setShowConfirm999(false);
     setShowAmbulanceNotif(true);
-    window.location.href = 'tel:999';
+    // TEMP DISABLE: CALL 999
+    // window.location.href = 'tel:999';
     setShowPatientInfo(true);
   };
 
@@ -2508,7 +2556,14 @@ function EmergencyTab({ patient, onProfile, onUpdate }: { patient: Patient | nul
                 <p className="text-blue-800 font-bold flex items-center gap-2">
                   <Info size={18} /> REMINDER
                 </p>
-                <p className="text-blue-700 text-sm">Please remember to bring along your **IC (Identification Card)** and **Medication History** when the ambulance arrives.</p>
+                <p className="text-blue-700 text-sm">Please remember to bring along your <b>IC (Identification Card)</b> and <b>Medication History</b> when the ambulance arrives.</p>
+              </div>
+
+              <div className="bg-yellow-50 p-4 rounded-2xl space-y-2">
+                <p className="text-yellow-800 font-bold flex items-center gap-2">
+                  <Info size={18} /> PREDICTION
+                </p>
+                <p className="text-yellow-700 text-sm">{predictCondition?.predictCondition} ({predictCondition?.predictChances * 100}%)</p>
               </div>
 
               <div className="space-y-4">
