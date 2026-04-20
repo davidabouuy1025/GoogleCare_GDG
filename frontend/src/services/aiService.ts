@@ -283,6 +283,22 @@ export const analyzeWound = async (base64Image: string, mimeType: string) => {
     // Interpret into wound result
     const { type, analysis, recommendations } = interpretVisionLabels(labels, safeSearch);
 
+    const medicalUnlikely = ['UNLIKELY', 'VERY_UNLIKELY', 'UNKNOWN'].includes(safeSearch.medical);
+
+    if (medicalUnlikely) {
+      return {
+        type: 'Unable to Classify',
+        analysis:
+          '⚠️ The image did not contain recognisable wound features. ' +
+          'This may be due to poor lighting, image angle, or the wound being ' +
+          'obscured. Please retake the photo in good lighting, close-up, and ' +
+          'ensure the wound is clearly visible.',
+        recommendations:
+          'For accurate analysis, upload a clear, well-lit photograph of the wound. ' +
+          'If you are concerned about your wound, please consult a healthcare professional.',
+      };
+    }
+
     return {
       type,
       analysis:
@@ -293,19 +309,19 @@ export const analyzeWound = async (base64Image: string, mimeType: string) => {
       recommendations,
     };
 
-  } catch (error: any) {
-    if (
-      error.message?.includes("429") ||
-      error.message?.toLowerCase().includes("quota")
-    ) {
-      return {
-        type: "Unknown",
-        analysis: "Vision API quota exceeded.",
-        recommendations: QUOTA_ERROR_MESSAGE,
-        isQuotaExceeded: true,
-      };
+    } catch (error: any) {
+      if (
+        error.message?.includes("429") ||
+        error.message?.toLowerCase().includes("quota")
+      ) {
+        return {
+          type: "Unknown",
+          analysis: "Vision API quota exceeded.",
+          recommendations: QUOTA_ERROR_MESSAGE,
+          isQuotaExceeded: true,
+        };
+      }
+      console.error("Wound Analysis (Vision API) Error:", error);
+      throw error;
     }
-    console.error("Wound Analysis (Vision API) Error:", error);
-    throw error;
-  }
-};
+  };
