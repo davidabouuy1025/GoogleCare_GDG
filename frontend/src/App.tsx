@@ -1082,6 +1082,10 @@ function WoundAnalyzer({ patientId, wound, onClose }: { patientId?: string; woun
       return [...filtered, result];
     });
 
+    if (aiResult?.type == 'Unable to Classify'){
+      return 
+    }
+
 
     console.log(patientId, slotIdx, aiResult?.type, pythonResult?.type, aiResult?.analysis, aiResult?.recommendations)
 
@@ -1168,9 +1172,6 @@ function WoundAnalyzer({ patientId, wound, onClose }: { patientId?: string; woun
           </div>
         </section>
 
-        {/* {activeWound && (
-        <WoundAnalyzer wound={activeWound} onClose={() => setActiveWound(null)} />
-      )} */}
 
         <hr className="border-slate-200" />
 
