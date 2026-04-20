@@ -1796,7 +1796,7 @@ function EmergencyTab({ patient, onProfile, onUpdate }: { patient: Patient | nul
       video: "/videos/asthma.mp4"
     },
     {
-      title: "Allergic Reaction",
+      title: "Allergy",
       advice: "1. Use EpiPen if available. \n2. Call emergency services. \n3. Lay flat with legs raised. \n4. Monitor breathing.",
       video: "/videos/allergy.mp4"
     },
