@@ -1082,8 +1082,8 @@ function WoundAnalyzer({ patientId, wound, onClose }: { patientId?: string; woun
       return [...filtered, result];
     });
 
-    if (aiResult?.type == 'Unable to Classify'){
-      return 
+    if (aiResult?.type == 'Unable to Classify') {
+      return
     }
 
 
@@ -1359,6 +1359,7 @@ function WoundAnalyzer({ patientId, wound, onClose }: { patientId?: string; woun
                     {r.aiResult && (
                       <div className="p-5 bg-blue-50 border border-blue-100 rounded-2xl space-y-4">
 
+                        {/* Header */}
                         <div className="flex items-center justify-between">
                           <p className="text-xs font-bold text-blue-500 uppercase tracking-wider">
                             🤖 AI Analysis
@@ -1366,15 +1367,15 @@ function WoundAnalyzer({ patientId, wound, onClose }: { patientId?: string; woun
                           <RiskBadge level="Medium" />
                         </div>
 
+                        {/* Wound type */}
                         <div>
-                          <p className="text-2xl font-bold text-blue-900">
-                            {r.aiResult.type}
-                          </p>
-                          <p className="text-sm text-blue-800 leading-relaxed">
+                          <p className="text-2xl font-bold text-blue-900">{r.aiResult.type}</p>
+                          <p className="text-sm text-blue-800 leading-relaxed mt-1">
                             {r.aiResult.analysis}
                           </p>
                         </div>
 
+                        {/* Care recommendations */}
                         <div className="p-4 bg-white/60 rounded-xl border border-blue-100">
                           <p className="text-xs font-bold text-blue-700 mb-2 uppercase tracking-wider">
                             Care Recommendations
@@ -1383,6 +1384,62 @@ function WoundAnalyzer({ patientId, wound, onClose }: { patientId?: string; woun
                             "{r.aiResult.recommendations}"
                           </p>
                         </div>
+
+                        {/* Meta — only render if meta exists */}
+                        {r.aiResult.meta && (
+                          <div className="space-y-2 pt-1 border-t border-blue-100">
+
+                            <div className="flex items-start gap-2 text-xs text-blue-700">
+                              <span className="shrink-0">📍</span>
+                              <div>
+                                <span className="font-bold uppercase tracking-wider">Objects detected</span>
+                                <p className="text-blue-600 mt-0.5">{r.aiResult.meta.objects}</p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-start gap-2 text-xs text-blue-700">
+                              <span className="shrink-0">🎨</span>
+                              <div>
+                                <span className="font-bold uppercase tracking-wider">Dominant colours</span>
+                                <div className="flex gap-2 mt-1 flex-wrap">
+                                  {r.aiResult.meta.dominantColors.split(', ').map((c: string, i: number) => {
+                                    const rgb = c.match(/rgb\([\d,]+\)/)?.[0];
+                                    const pct = c.match(/[\d.]+%/)?.[0];
+                                    return (
+                                      <div key={i} className="flex items-center gap-1">
+                                        {rgb && (
+                                          <div
+                                            className="w-4 h-4 rounded-full border border-blue-100 shrink-0"
+                                            style={{ background: rgb }}
+                                          />
+                                        )}
+                                        <span className="text-blue-500">{pct}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-start gap-2 text-xs text-blue-700">
+                              <span className="shrink-0">🏥</span>
+                              <div>
+                                <span className="font-bold uppercase tracking-wider">Medical likelihood</span>
+                                <p className={cn(
+                                  "mt-0.5 font-bold",
+                                  r.aiResult.meta.medicalLikelihood === 'VERY_LIKELY' && "text-green-600",
+                                  r.aiResult.meta.medicalLikelihood === 'LIKELY' && "text-green-500",
+                                  r.aiResult.meta.medicalLikelihood === 'POSSIBLE' && "text-yellow-600",
+                                  r.aiResult.meta.medicalLikelihood === 'UNLIKELY' && "text-red-500",
+                                  r.aiResult.meta.medicalLikelihood === 'VERY_UNLIKELY' && "text-red-600",
+                                )}>
+                                  {r.aiResult.meta.medicalLikelihood}
+                                </p>
+                              </div>
+                            </div>
+
+                          </div>
+                        )}
 
                       </div>
                     )}
