@@ -201,6 +201,39 @@ export const checkInElderly = async (mood: string, vitals: string) => {
   }
 };
 
+export const predictEmergency = async (symptoms: any[]) => {
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-lite-preview",
+      contents: `Based on all and recent latest symptoms ${symptoms}, predict what condition user may experience`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            predictCondition: { type: Type.STRING },
+            predictChances: { type: Type.NUMBER }
+          },
+          required: ["predictCondition", "predictChances"]
+        }
+      }
+    });
+
+    return JSON.parse(response.text ?? "{}");
+  } catch (error: any) {
+    if (error.message?.includes("429") || error.message?.toLowerCase().includes("quota")) {
+      return {
+        risk_detected: false,
+        assessment: QUOTA_ERROR_MESSAGE,
+        risk_level: "Low",
+        isQuotaExceeded: true
+      };
+    }
+    console.error("Predict Emergency Error:", error);
+    throw error;
+  }
+};
+
 const VISION_API_KEY = import.meta.env.VITE_GOOGLE_CLOUD_VISION_API_KEY;
 
 const VISION_API_URL = `https://vision.googleapis.com/v1/images:annotate?key=${VISION_API_KEY}`;
