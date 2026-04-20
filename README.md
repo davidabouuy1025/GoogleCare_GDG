@@ -191,17 +191,17 @@ Convert to Base64
         │
         ▼
 Run in parallel:
-  ┌───────────┐      ┌────────────────┐
-  │  Google Vision      │      │  Python Flask Server           │
-  │  analyzeWound()   │      │  POST /api/python/analyze │
-  │                               │      │  TensorFlow model             │
-  │  → type                 │      │  → type + confidence         │
-  │  → analysis           │      │  → allScores [6 classes]     │
-  │  → recommend.    │      │                                             │
-  └───────────┘      └────────────────┘
-           │                                                           │
-           └──────────┬──────────┘
-                                         ▼
+  ┌─────────────────┐      ┌─────────────────────────┐
+  │  GLM Vision     │      │  Python Flask Server     │
+  │  analyzeWound() │      │  POST /api/python/analyze│
+  │                 │      │  TensorFlow model        │
+  │  → type         │      │  → type + confidence     │
+  │  → analysis     │      │  → allScores [6 classes] │
+  │  → recommend.   │      │                          │
+  └────────┬────────┘      └────────────┬─────────────┘
+           │                            │
+           └──────────┬─────────────────┘
+                      ▼
               Merge results into WoundResult
                       │
                       ├── Save to Firestore (wounds/)
