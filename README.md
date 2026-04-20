@@ -507,7 +507,7 @@ npm run build
 # ==============
 #              Backend
 # ==============
-# safest option (recommended)
+# Skipped - has been included in frontend/package.json 
 Remove-Item -Recurse -Force ..\backend\static\*
 Copy-Item -Recurse -Force dist\* ..\backend\static\
 
@@ -515,7 +515,7 @@ Copy-Item -Recurse -Force dist\* ..\backend\static\
 #              Docker
 # ==============
 cd ..
-
+cd backend
 docker build -t google-care:latest .
 
 # run locally
@@ -524,10 +524,7 @@ docker run -p 8080:8080 google-care:latest
 # ==============
 #              Deployment
 # ==============
-gcloud run deploy google-care \
-  --source . \
-  --region asia-southeast1 \
-  --allow-unauthenticated
+gcloud run deploy google-care --source . --region asia-southeast1 --allow-unauthenticated
 ```
 
 ### Architecture in Production
