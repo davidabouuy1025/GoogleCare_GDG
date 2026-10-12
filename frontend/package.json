@@ -8,7 +8,7 @@
     "start": "node server.ts",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "postbuild": "powershell -NoProfile -Command \"Remove-Item -Recurse -Force ..\\backend\\static; Copy-Item -Recurse -Force dist ..\\backend\\static\""
+    "postbuild": "node -e \"const fs = require('fs'); fs.rmSync('../backend/static', { recursive: true, force: true }); fs.cpSync('dist', '../backend/static', { recursive: true });\""
   },
   "dependencies": {
     "@google/genai": "^1.47.0",
