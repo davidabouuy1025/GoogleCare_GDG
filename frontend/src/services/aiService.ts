@@ -1,11 +1,3 @@
-// Based on the symptoms, provide:
-// 1. The single most likely condition (topCondition) in plain English
-// 2. 5 possible conditions ranked by likelihood, each with a confidence percentage (they don't need to add up to 100)
-// 3. Practical advice with home remedies in bullet point format (advice field, use markdown bullets)
-// 4. Overall risk level
-// 5. A warm, conversational follow-up question to help narrow things down further — ask about specific details like: where exactly the pain is, how long it has been going on, recent food/drink/stress/medication, other symptoms they might not have mentioned. Keep it to ONE focused question.
-// 6. Whether this needs an urgent check-in (triggerElderlyCheckIn) — only true if symptoms are genuinely alarming
-
 import { GoogleGenAI, Type } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
